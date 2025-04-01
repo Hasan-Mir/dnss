@@ -26,6 +26,14 @@ interface DNSConfig {
 // The configuration file path in the user's home directory
 const CONFIG_PATH = path.join(os.homedir(), '.dnschanger.json');
 
+function getOS(): 'windows' | 'linux' | 'mac' {
+    const platform = os.platform();
+    if (platform === 'win32') return 'windows';
+    if (platform === 'darwin') return 'mac';
+    if (platform === 'linux') return 'linux';
+    throw new Error('Unsupported OS');
+}
+
 /**
  * Load DNS configurations from the config file.
  * If the file doesn't exist, returns an empty array.
@@ -61,24 +69,50 @@ function saveConfigs(configs: DNSConfig[]) {
  * Retrieve available network adapters using netsh.
  */
 function getNetworkAdapters(): string[] {
+    const osType = getOS();
     try {
-        const output = execSync('netsh interface show interface', {
-            encoding: 'utf-8',
-        });
-        const lines = output.split('\n').map((line) => line.trim());
+        if (osType === 'windows') {
+            const output = execSync('netsh interface show interface', {
+                encoding: 'utf-8',
+            });
 
-        return lines
-            .slice(2) // Skip headers
-            .map((line) => line.match(/\s{2,}(.+)$/)?.[1]?.trim()) // Extract adapter name
-            .filter(
-                (name) => name && !name.toLowerCase().includes('loopback')
-            ) as string[];
+            return output
+                .split('\n')
+                .slice(2)
+                .map((line) =>
+                    line
+                        .trim()
+                        .split(/\s{2,}/)
+                        .pop()
+                )
+                .filter(Boolean) as string[];
+        } else if (osType === 'linux') {
+            const output = execSync('nmcli device status', {
+                encoding: 'utf-8',
+            });
+
+            return output
+                .split('\n')
+                .slice(1)
+                .map((line) => line.split(/\s+/)[0])
+                .filter(Boolean);
+        } else if (osType === 'mac') {
+            const output = execSync('networksetup -listallnetworkservices', {
+                encoding: 'utf-8',
+            });
+
+            return output
+                .split('\n')
+                .slice(1)
+                .map((line) => line.trim())
+                .filter(Boolean);
+        }
     } catch (error) {
-        console.error(
-            chalk.red('Error detecting network adapters. Are you on Windows?')
-        );
+        console.error(chalk.red('Error detecting network adapters:'), error);
         return [];
     }
+
+    return [];
 }
 
 /**
@@ -86,48 +120,95 @@ function getNetworkAdapters(): string[] {
  * If config is undefined, set DNS to automatic (DHCP).
  */
 function setDNS(adapter: string, config?: DNSConfig) {
+    const osType = getOS();
+
+    const logSettingDnsToAuto = () => {
+        console.log(
+            chalk.yellow(
+                `Setting DNS to automatic (DHCP) on adapter "${adapter}"...`
+            )
+        );
+    };
+
+    const logSettingDns = (config: DNSConfig) => {
+        console.log(
+            chalk.yellow(
+                `Setting DNS to ${config.primary} on adapter "${adapter}"...`
+            )
+        );
+    };
+
     try {
-        if (!config) {
-            console.log(
-                chalk.yellow(
-                    `Setting DNS to automatic (DHCP) on adapter "${adapter}"...`
-                )
-            );
-            execSync(`netsh interface ip set dns name="${adapter}" dhcp`, {
-                stdio: 'inherit',
-            });
-        } else {
-            console.log(
-                chalk.yellow(
-                    `Setting primary DNS to ${config.primary} on adapter "${adapter}"...`
-                )
-            );
-            execSync(
-                `netsh interface ip set dns name="${adapter}" static ${config.primary} primary`,
-                {
+        if (osType === 'windows') {
+            if (!config) {
+                logSettingDnsToAuto();
+                execSync(`netsh interface ip set dns name="${adapter}" dhcp`, {
                     stdio: 'inherit',
-                }
-            );
-            if (config.alternative) {
-                console.log(
-                    chalk.yellow(
-                        `Adding alternative DNS ${config.alternative} on adapter "${adapter}"...`
-                    )
-                );
+                });
+            } else {
+                logSettingDns(config);
                 execSync(
-                    `netsh interface ip add dns name="${adapter}" ${config.alternative} index=2`,
-                    {
-                        stdio: 'inherit',
-                    }
+                    `netsh interface ip set dns name="${adapter}" static ${config.primary} primary`,
+                    { stdio: 'inherit' }
+                );
+
+                if (config.alternative) {
+                    console.log(
+                        chalk.yellow(
+                            `Adding alternative DNS ${config.alternative} on adapter "${adapter}"...`
+                        )
+                    );
+
+                    execSync(
+                        `netsh interface ip add dns name="${adapter}" ${config.alternative} index=2`,
+                        { stdio: 'inherit' }
+                    );
+                }
+            }
+        } else if (osType === 'linux') {
+            if (!config) {
+                logSettingDnsToAuto();
+                execSync(
+                    `nmcli con mod "${adapter}" ipv4.ignore-auto-dns yes; nmcli con up "${adapter}"`,
+                    { stdio: 'inherit' }
+                );
+            } else {
+                logSettingDns(config);
+
+                const dnsList = [config.primary, config.alternative]
+                    .filter(Boolean)
+                    .join(' ');
+
+                execSync(
+                    `nmcli con mod "${adapter}" ipv4.dns "${dnsList}"; nmcli con up "${adapter}"`,
+                    { stdio: 'inherit' }
+                );
+            }
+        } else if (osType === 'mac') {
+            if (!config) {
+                logSettingDnsToAuto();
+                execSync(`networksetup -setdnsservers "${adapter}" empty`, {
+                    stdio: 'inherit',
+                });
+            } else {
+                logSettingDns(config);
+
+                const dnsList = [config.primary, config.alternative]
+                    .filter(Boolean)
+                    .join(' ');
+
+                execSync(
+                    `networksetup -setdnsservers "${adapter}" ${dnsList}`,
+                    { stdio: 'inherit' }
                 );
             }
         }
+
         console.log(chalk.green('DNS settings updated successfully.'));
     } catch (error) {
         console.error(
-            chalk.red(
-                'Failed to update DNS settings. Are you running this program as an administrator?'
-            )
+            chalk.red('Failed to update DNS settings. Run as admin/sudo?'),
+            error
         );
     }
 }
@@ -222,6 +303,9 @@ function validateIP(ip: string): boolean {
  */
 async function addDNSConfigFlow() {
     console.log(chalk.blue('\nAdd a New DNS Configuration\n'));
+
+    const isWindows = getOS() === 'windows';
+
     const answers = await inquirer.prompt([
         {
             type: 'input',
@@ -233,33 +317,41 @@ async function addDNSConfigFlow() {
         {
             type: 'input',
             name: 'primary',
-            message: 'Primary DNS server (IPv4):',
+            message: `${isWindows ? 'Primary ' : ''}DNS server (IPv4):`,
             validate: (input: string) =>
                 validateIP(input) ? true : 'Please enter a valid IPv4 address.',
         },
-        {
-            type: 'input',
-            name: 'alternative',
-            message: 'Alternative DNS server (IPv4) (optional):',
-            validate: (input: string) => {
-                if (input.trim() === '') return true;
-                return validateIP(input)
-                    ? true
-                    : 'Please enter a valid IPv4 address or leave blank.';
-            },
-        },
+        ...(isWindows
+            ? [
+                  {
+                      type: 'input',
+                      name: 'alternative',
+                      message: 'Alternative DNS server (IPv4) (optional):',
+                      validate: (input: string) => {
+                          if (input.trim() === '') return true;
+                          return validateIP(input)
+                              ? true
+                              : 'Please enter a valid IPv4 address or leave blank.';
+                      },
+                  } as const,
+              ]
+            : []),
     ]);
 
-    const newConfig: DNSConfig = {
+    const newConfig = {
         name: answers.name.trim(),
         primary: answers.primary.trim(),
-        alternative: answers.alternative.trim() || undefined,
+        alternative:
+            isWindows && answers.alternative?.trim()
+                ? answers.alternative.trim()
+                : undefined,
     };
 
-    // Load existing configurations, add the new one, and then save them
+    // Load existing configurations, add the new one, and save
     const configs = loadConfigs();
     configs.push(newConfig);
     saveConfigs(configs);
+
     console.log(
         chalk.green(`Configuration "${newConfig.name}" added successfully.`)
     );
@@ -310,12 +402,17 @@ async function removeDNSConfigFlow() {
     }
 }
 
+/**
+ * Flow for editting a DNS configuration.
+ */
 async function editDNSConfigFlow() {
     let configs = loadConfigs();
     if (configs.length === 0) {
         console.log(chalk.yellow('No DNS configurations to edit.'));
         return;
     }
+
+    const isWindows = getOS() === 'windows';
 
     const { editIndex } = await inquirer.prompt([
         {
@@ -343,25 +440,32 @@ async function editDNSConfigFlow() {
             name: 'primary',
             message: 'New primary DNS server:',
             default: configs[editIndex].primary,
-            validate: (input: string) =>
+            validate: (input) =>
                 validateIP(input) ? true : 'Enter a valid IPv4 address.',
         },
-        {
-            type: 'input',
-            name: 'alternative',
-            message: 'New alternative DNS server (optional):',
-            default: configs[editIndex].alternative || '',
-            validate: (input: string) =>
-                input.trim() === '' || validateIP(input)
-                    ? true
-                    : 'Enter a valid IPv4 address.',
-        },
+        ...(isWindows
+            ? [
+                  {
+                      type: 'input',
+                      name: 'alternative',
+                      message: 'New alternative DNS server (optional):',
+                      default: configs[editIndex].alternative || '',
+                      validate: (input: string) =>
+                          input.trim() === '' || validateIP(input)
+                              ? true
+                              : 'Enter a valid IPv4 address.',
+                  } as const,
+              ]
+            : []),
     ]);
 
     configs[editIndex] = {
         name: editedConfig.name.trim(),
         primary: editedConfig.primary.trim(),
-        alternative: editedConfig.alternative.trim() || undefined,
+        alternative:
+            isWindows && editedConfig.alternative?.trim()
+                ? editedConfig.alternative.trim()
+                : undefined,
     };
 
     saveConfigs(configs);
@@ -369,18 +473,43 @@ async function editDNSConfigFlow() {
 }
 
 function resetAllDNS() {
+    const osType = getOS();
     const adapters = getNetworkAdapters();
+
     if (adapters.length === 0) {
         console.error(chalk.red('No network adapters found.'));
         return;
     }
-    adapters.forEach((adapter) => {
-        console.log(chalk.yellow(`Resetting DNS on adapter "${adapter}"...`));
-        execSync(`netsh interface ip set dns name="${adapter}" dhcp`, {
-            stdio: 'inherit',
+
+    try {
+        adapters.forEach((adapter) => {
+            console.log(
+                chalk.yellow(`Resetting DNS on adapter "${adapter}"...`)
+            );
+
+            if (osType === 'windows') {
+                execSync(`netsh interface ip set dns name="${adapter}" dhcp`, {
+                    stdio: 'inherit',
+                });
+            } else if (osType === 'linux') {
+                execSync(
+                    `nmcli con mod "${adapter}" ipv4.ignore-auto-dns no; nmcli con up "${adapter}"`,
+                    { stdio: 'inherit' }
+                );
+            } else if (osType === 'mac') {
+                execSync(`networksetup -setdnsservers "${adapter}" empty`, {
+                    stdio: 'inherit',
+                });
+            }
         });
-    });
-    console.log(chalk.green('All adapters reset to DHCP.'));
+
+        console.log(chalk.green('All adapters reset to DHCP.'));
+    } catch (error) {
+        console.error(
+            chalk.red('Failed to reset DNS settings. Run as admin/sudo?'),
+            error
+        );
+    }
 }
 
 /**
@@ -393,6 +522,7 @@ async function mainMenu() {
     console.log(chalk.bold.blue('==========================\n'));
 
     let exit = false;
+
     while (!exit) {
         const { choice } = await inquirer.prompt([
             {
@@ -430,7 +560,7 @@ async function mainMenu() {
                 await editDNSConfigFlow();
                 break;
             case 'resetAll':
-                await resetAllDNS();
+                resetAllDNS();
                 break;
             case 'exit':
                 exit = true;
@@ -456,7 +586,12 @@ async function mainMenu() {
 
 function isAdmin(): boolean {
     try {
-        execSync('net session', { stdio: 'ignore' });
+        if (getOS() === 'windows') {
+            execSync('net session', { stdio: 'ignore' });
+        } else {
+            execSync('id -u', { stdio: 'ignore' });
+        }
+
         return true;
     } catch {
         return false;
@@ -464,14 +599,21 @@ function isAdmin(): boolean {
 }
 
 function elevatePrivileges() {
-    const scriptPath = process.argv[1]; // Get current script path
-    const command = `powershell -Command "Start-Process 'node' -ArgumentList '${scriptPath}' -Verb RunAs"`;
+    const scriptPath = process.argv[1];
+    const osType = getOS();
+    let command = '';
+
+    if (osType === 'windows') {
+        command = `powershell -Command "Start-Process 'node' -ArgumentList '${scriptPath}' -Verb RunAs"`;
+    } else {
+        command = `sudo node "${scriptPath}"`;
+    }
 
     try {
         execSync(command, { stdio: 'ignore' });
-        process.exit(0); // Exit the original process after relaunching
+        process.exit(0);
     } catch (error) {
-        console.error(chalk.red('Failed to restart with admin privileges.'));
+        console.error(chalk.red('Failed to start with admin privileges.'));
         process.exit(1);
     }
 }
