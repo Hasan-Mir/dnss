@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",                        // Use a modern target to support Promises, async/await, etc.
+    "module": "CommonJS",                       // For Node.js compatibility
+    "lib": ["ES2020"],                          // Include the latest ECMAScript library (or at least ES2015)
+    "moduleResolution": "node",                 // Use Node's module resolution strategy
+    "esModuleInterop": true,                    // For default import interop with CommonJS modules
+    "strict": true,                             // Enable all strict type-checking options
+    "forceConsistentCasingInFileNames": true,   // Ensure consistent file casing
+    "skipLibCheck": true,                       // Skip type checking of declaration files
+    "outDir": "dist",                           // Output directory for compiled JavaScript
+    "rootDir": "src"                            // Root directory for your source files
+  },
+  "include": ["src"],
+  "exclude": ["node_modules"]
+}
