@@ -12,10 +12,10 @@
 
 import inquirer from 'inquirer';
 import chalk from 'chalk';
-import fs from 'fs';
-import path from 'path';
-import os from 'os';
-import { execSync } from 'child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { execSync } from 'node:child_process';
 
 interface DNSConfig {
     name: string;
@@ -66,7 +66,8 @@ function saveConfigs(configs: DNSConfig[]) {
 }
 
 /**
- * Retrieve available network adapters using netsh.
+ * Retrieve available network adapters.
+ * For Windows, it uses "netsh interface show interface" and filters out divider lines.
  */
 function getNetworkAdapters(): string[] {
     const osType = getOS();
@@ -79,6 +80,7 @@ function getNetworkAdapters(): string[] {
             return output
                 .split('\n')
                 .slice(2)
+                .filter((line) => !/^-+/.test(line)) // ignore divider lines
                 .map((line) =>
                     line
                         .trim()
@@ -113,6 +115,117 @@ function getNetworkAdapters(): string[] {
     }
 
     return [];
+}
+
+/**
+ * Retrieve the current DNS settings from the system for a specific adapter.
+ * For Windows, it captures both the primary and alternative DNS servers.
+ */
+function getCurrentDNS(adapter?: string): DNSConfig | null {
+    const osType = getOS();
+    try {
+        if (osType === 'windows') {
+            let command = 'netsh interface ip show dns';
+            if (adapter) {
+                command += ` name="${adapter.trim()}"`;
+            }
+            const output = execSync(command, { encoding: 'utf-8' });
+            const lines = output.split('\n');
+            let dnsServers: string[] = [];
+            let capture = false;
+            for (let line of lines) {
+                if (line.includes('Statically Configured DNS Servers:')) {
+                    // Try to extract an IP on the same line
+                    const parts = line.split(':');
+                    if (parts.length > 1) {
+                        const ipCandidate = parts[1].trim();
+                        if (validateIP(ipCandidate)) {
+                            dnsServers.push(ipCandidate);
+                        }
+                    }
+                    capture = true;
+                    continue;
+                }
+                if (capture) {
+                    // Stop if the line is empty or not indented
+                    if (line.trim() === '' || !line.startsWith(' ')) break;
+                    const ipCandidate = line.trim();
+                    if (validateIP(ipCandidate)) {
+                        dnsServers.push(ipCandidate);
+                    }
+                }
+            }
+            if (dnsServers.length > 0) {
+                return {
+                    name: 'Current DNS',
+                    primary: dnsServers[0],
+                    alternative: dnsServers[1] || undefined,
+                };
+            }
+        } else if (osType === 'linux') {
+            let command = 'nmcli dev show';
+            if (adapter) {
+                command += ` ${adapter}`;
+            }
+            command += " | grep 'IP4.DNS'";
+            const output = execSync(command, { encoding: 'utf-8' });
+            const dnsEntries = output
+                .split('\n')
+                .map((line) => line.split(':')[1]?.trim())
+                .filter(Boolean);
+            if (dnsEntries.length > 0) {
+                return {
+                    name: 'Current DNS',
+                    primary: dnsEntries[0],
+                    alternative: dnsEntries[1] || undefined,
+                };
+            }
+        } else if (osType === 'mac') {
+            if (adapter) {
+                const output = execSync(
+                    `networksetup -getdnsservers "${adapter.trim()}"`,
+                    {
+                        encoding: 'utf-8',
+                    }
+                );
+                if (output.includes("There aren't any DNS Servers set")) {
+                    return null;
+                }
+                const dnsEntries = output
+                    .split('\n')
+                    .map((line) => line.trim())
+                    .filter((line) => validateIP(line));
+                if (dnsEntries.length > 0) {
+                    return {
+                        name: 'Current DNS',
+                        primary: dnsEntries[0],
+                        alternative: dnsEntries[1] || undefined,
+                    };
+                }
+            } else {
+                const output = execSync('scutil --dns | grep nameserver', {
+                    encoding: 'utf-8',
+                });
+                const dnsEntries = output
+                    .split('\n')
+                    .map((line) => line.split(': ')[1]?.trim())
+                    .filter(Boolean);
+                if (dnsEntries.length > 0) {
+                    return {
+                        name: 'Current DNS',
+                        primary: dnsEntries[0],
+                        alternative: dnsEntries[1] || undefined,
+                    };
+                }
+            }
+        }
+    } catch (error) {
+        console.error(
+            chalk.red('Error detecting current DNS settings:'),
+            error
+        );
+    }
+    return null;
 }
 
 /**
@@ -217,19 +330,61 @@ function setDNS(adapter: string, config?: DNSConfig) {
  * Flow for changing the DNS settings.
  */
 async function changeDNSFlow() {
+    // Select the network adapter to modify
+    const adapters = getNetworkAdapters();
+    if (adapters.length === 0) {
+        console.error(chalk.red('No network adapters found.'));
+        return;
+    }
+    const adapterChoices = [
+        ...adapters.map((adapter) => ({
+            name: adapter,
+            value: adapter,
+        })),
+        { name: 'Back to main menu', value: 'escape' },
+    ];
+    const { adapterChoice } = await inquirer.prompt([
+        {
+            type: 'list',
+            name: 'adapterChoice',
+            message: 'Select the network adapter to change:',
+            choices: adapterChoices,
+            pageSize: 10,
+        },
+    ]);
+    if (adapterChoice === 'escape') {
+        console.log(chalk.yellow('Operation cancelled.'));
+        return;
+    }
+    const adapter = adapterChoice;
+    console.log(chalk.blue(`Using adapter: ${adapter}`));
+
+    // Get current DNS for the selected adapter
+    const currentDNS = getCurrentDNS(adapter);
+
     // Load previously saved configurations
     const configs = loadConfigs();
 
-    // Build choices: include "No DNS (DHCP)" plus the saved configurations.
-    const choices = [
-        { name: chalk.bold('No DNS (Use DHCP)'), value: null },
+    // Build choices: include "No DNS (Use DHCP)" plus the saved configurations.
+    const dnsChoices = [
+        {
+            name: 'No DNS (Use DHCP)',
+            value: null,
+        },
         ...configs.map((cfg, index) => {
             const altText = cfg.alternative ? `, alt: ${cfg.alternative}` : '';
+            const isCurrent =
+                currentDNS &&
+                cfg.primary === currentDNS.primary &&
+                cfg.alternative === currentDNS.alternative;
             return {
-                name: `${cfg.name}: ${cfg.primary}${altText}`,
+                name: isCurrent
+                    ? chalk.green(`${cfg.name}: ${cfg.primary}${altText}  *`)
+                    : `${cfg.name}: ${cfg.primary}${altText}`,
                 value: index,
             };
         }),
+        { name: 'Back to main menu', value: 'escape' },
     ];
 
     const { dnsChoice } = await inquirer.prompt([
@@ -237,38 +392,17 @@ async function changeDNSFlow() {
             type: 'list',
             name: 'dnsChoice',
             message: 'Select a DNS configuration to apply:',
-            choices,
+            choices: dnsChoices,
             pageSize: 10,
         },
     ]);
-
+    if (dnsChoice === 'escape') {
+        console.log(chalk.yellow('Operation cancelled.'));
+        return;
+    }
     // Determine which DNS config to use (if any)
     const selectedConfig: DNSConfig | undefined =
         dnsChoice === null ? undefined : configs[dnsChoice];
-
-    // Select the network adapter to modify
-    const adapters = getNetworkAdapters();
-    if (adapters.length === 0) {
-        console.error(chalk.red('No network adapters found.'));
-        return;
-    }
-
-    let adapter: string;
-    if (adapters.length === 1) {
-        adapter = adapters[0];
-        console.log(chalk.blue(`Using the only available adapter: ${adapter}`));
-    } else {
-        const { adapterChoice } = await inquirer.prompt([
-            {
-                type: 'list',
-                name: 'adapterChoice',
-                message: 'Select the network adapter to change:',
-                choices: adapters,
-                pageSize: 10,
-            },
-        ]);
-        adapter = adapterChoice;
-    }
 
     // Confirm and apply the settings
     const confirm = await inquirer.prompt([
@@ -284,18 +418,6 @@ async function changeDNSFlow() {
     } else {
         console.log(chalk.yellow('Operation cancelled.'));
     }
-}
-
-/**
- * Validate an IPv4 address.
- */
-function validateIP(ip: string): boolean {
-    const parts = ip.trim().split('.');
-    if (parts.length !== 4) return false;
-    return parts.every((part) => {
-        const num = Number(part);
-        return !isNaN(num) && num >= 0 && num <= 255;
-    });
 }
 
 /**
@@ -366,23 +488,29 @@ async function removeDNSConfigFlow() {
         console.log(chalk.yellow('No DNS configurations to remove.'));
         return;
     }
+    const removalChoices = [
+        ...configs.map((cfg, index) => {
+            const altText = cfg.alternative ? `, alt: ${cfg.alternative}` : '';
+            return {
+                name: `${cfg.name}: ${cfg.primary}${altText}`,
+                value: index,
+            };
+        }),
+        { name: 'Back to main menu', value: 'escape' },
+    ];
     const { removalIndex } = await inquirer.prompt([
         {
             type: 'list',
             name: 'removalIndex',
             message: 'Select a configuration to remove:',
-            choices: configs.map((cfg, index) => {
-                const altText = cfg.alternative
-                    ? `, alt: ${cfg.alternative}`
-                    : '';
-                return {
-                    name: `${cfg.name}: ${cfg.primary}${altText}`,
-                    value: index,
-                };
-            }),
+            choices: removalChoices,
             pageSize: 10,
         },
     ]);
+    if (removalIndex === 'escape') {
+        console.log(chalk.yellow('Operation cancelled.'));
+        return;
+    }
 
     const { confirmRemove } = await inquirer.prompt([
         {
@@ -403,7 +531,7 @@ async function removeDNSConfigFlow() {
 }
 
 /**
- * Flow for editting a DNS configuration.
+ * Flow for editing a DNS configuration.
  */
 async function editDNSConfigFlow() {
     let configs = loadConfigs();
@@ -414,19 +542,28 @@ async function editDNSConfigFlow() {
 
     const isWindows = getOS() === 'windows';
 
+    const editChoices = [
+        ...configs.map((cfg, index) => ({
+            name: `${cfg.name}: ${cfg.primary}, ${
+                cfg.alternative || 'No alternative'
+            }`,
+            value: index,
+        })),
+        { name: 'Back to main menu', value: 'escape' },
+    ];
+
     const { editIndex } = await inquirer.prompt([
         {
             type: 'list',
             name: 'editIndex',
             message: 'Select a configuration to edit:',
-            choices: configs.map((cfg, index) => ({
-                name: `${cfg.name}: ${cfg.primary}, ${
-                    cfg.alternative || 'No alternative'
-                }`,
-                value: index,
-            })),
+            choices: editChoices,
         },
     ]);
+    if (editIndex === 'escape') {
+        console.log(chalk.yellow('Operation cancelled.'));
+        return;
+    }
 
     const editedConfig = await inquirer.prompt([
         {
@@ -513,6 +650,45 @@ function resetAllDNS() {
 }
 
 /**
+ * Flow for showing currently used DNS configurations.
+ */
+async function showCurrentDNSConfigsFlow() {
+    const adapters = getNetworkAdapters();
+    if (adapters.length === 0) {
+        console.log(chalk.yellow('No network adapters found.'));
+        return;
+    }
+    // Prepare table header
+    console.log(
+        chalk.bold(
+            'Adapter Name                    Primary DNS         Alternative DNS'
+        )
+    );
+    console.log(
+        '--------------------------------------------------------------------------'
+    );
+    adapters.forEach((adapter) => {
+        const currentDNS = getCurrentDNS(adapter);
+        const primary = currentDNS ? currentDNS.primary : 'N/A';
+        const alternative = currentDNS
+            ? currentDNS.alternative || 'N/A'
+            : 'N/A';
+        // Adjust spacing for a simple table
+        console.log(
+            adapter.padEnd(30) + primary.padEnd(20) + alternative.padEnd(20)
+        );
+    });
+    // Wait for user to press enter to return to main menu
+    await inquirer.prompt([
+        {
+            type: 'input',
+            name: 'continue',
+            message: chalk.gray('Press ENTER to return to the main menu...'),
+        },
+    ]);
+}
+
+/**
  * The main menu loop.
  */
 async function mainMenu() {
@@ -533,19 +709,19 @@ async function mainMenu() {
                     { name: 'Change DNS settings', value: 'change' },
                     { name: 'Add a DNS configuration', value: 'add' },
                     { name: 'Remove a DNS configuration', value: 'remove' },
-                    {
-                        name: 'Edit a DNS configuration',
-                        value: 'edit',
-                    },
+                    { name: 'Edit a DNS configuration', value: 'edit' },
                     {
                         name: 'Reset all adapters to DHCP (No DNS)',
                         value: 'resetAll',
+                    },
+                    {
+                        name: 'Show currently used DNS configs',
+                        value: 'showDNS',
                     },
                     { name: 'Exit', value: 'exit' },
                 ],
             },
         ]);
-
         switch (choice) {
             case 'change':
                 await changeDNSFlow();
@@ -561,6 +737,9 @@ async function mainMenu() {
                 break;
             case 'resetAll':
                 resetAllDNS();
+                break;
+            case 'showDNS':
+                await showCurrentDNSConfigsFlow();
                 break;
             case 'exit':
                 exit = true;
@@ -599,23 +778,52 @@ function isAdmin(): boolean {
 }
 
 function elevatePrivileges() {
-    const scriptPath = process.argv[1];
+    // process.argv[1] can be relative (e.g. "index.js"). The elevated process
+    // starts in C:\Windows\System32, so a relative path makes node fail
+    // instantly ("Cannot find module") and the window closes before anything
+    // is visible. Always resolve to an absolute path.
+    const scriptPath = path.resolve(process.argv[1]).replace(/'/g, "''");
     const osType = getOS();
+    // Write a tiny launcher batch file so the UAC-elevated console runs the
+    // script from this same working directory, with paths/quotes handled by
+    // cmd itself. "pause" only triggers on a non-zero exit, so if node crashes
+    // at startup the error stays visible instead of the window flashing shut.
+    const launcher = path.join(os.tmpdir(), 'dns-changer-admin.cmd');
+    fs.writeFileSync(
+        launcher,
+        '@echo off\r\n' +
+            `cd /d "${process.cwd().replace(/"/g, '')}"\r\n` +
+            `node "${scriptPath}"\r\n` +
+            'if errorlevel 1 pause\r\n'
+    );
     let command = '';
 
     if (osType === 'windows') {
-        command = `powershell -Command "Start-Process 'node' -ArgumentList '${scriptPath}' -Verb RunAs"`;
+        command = `powershell -Command "Start-Process '${launcher}' -Verb RunAs"`;
     } else {
         command = `sudo node "${scriptPath}"`;
     }
 
     try {
-        execSync(command, { stdio: 'ignore' });
+        // 'ignore' on Windows: the elevated process opens its own console
+        // window. 'inherit' on mac/Linux: sudo runs the app in this same
+        // terminal, so the interactive prompts must stay attached.
+        execSync(command, { stdio: osType === 'windows' ? 'ignore' : 'inherit' });
         process.exit(0);
     } catch (error) {
         console.error(chalk.red('Failed to start with admin privileges.'));
         process.exit(1);
     }
+}
+
+// Validate an IPv4 address.
+function validateIP(ip: string): boolean {
+    const parts = ip.trim().split('.');
+    if (parts.length !== 4) return false;
+    return parts.every((part) => {
+        const num = Number(part);
+        return !isNaN(num) && num >= 0 && num <= 255;
+    });
 }
 
 // Start the CLI tool.
@@ -625,6 +833,26 @@ function elevatePrivileges() {
         elevatePrivileges();
         process.exit(1);
     }
-
+    // Iterate over all available adapters to get the current DNS settings
+    const adapters = getNetworkAdapters();
+    if (adapters.length > 0) {
+        let configs = loadConfigs();
+        adapters.forEach((adapter, index) => {
+            const currentDNS = getCurrentDNS(adapter);
+            if (currentDNS) {
+                if (
+                    !configs.some(
+                        (cfg) =>
+                            cfg.primary === currentDNS.primary &&
+                            cfg.alternative === currentDNS.alternative
+                    )
+                ) {
+                    currentDNS.name = `default_dns-${index + 1}`;
+                    configs.unshift(currentDNS); // Add to the beginning of the list
+                }
+            }
+        });
+        saveConfigs(configs);
+    }
     await mainMenu();
 })();
