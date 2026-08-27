@@ -678,14 +678,6 @@ async function showCurrentDNSConfigsFlow() {
             adapter.padEnd(30) + primary.padEnd(20) + alternative.padEnd(20)
         );
     });
-    // Wait for user to press enter to return to main menu
-    await inquirer.prompt([
-        {
-            type: 'input',
-            name: 'continue',
-            message: chalk.gray('Press ENTER to return to the main menu...'),
-        },
-    ]);
 }
 
 /**
@@ -808,7 +800,9 @@ function elevatePrivileges() {
         // 'ignore' on Windows: the elevated process opens its own console
         // window. 'inherit' on mac/Linux: sudo runs the app in this same
         // terminal, so the interactive prompts must stay attached.
-        execSync(command, { stdio: osType === 'windows' ? 'ignore' : 'inherit' });
+        execSync(command, {
+            stdio: osType === 'windows' ? 'ignore' : 'inherit',
+        });
         process.exit(0);
     } catch (error) {
         console.error(chalk.red('Failed to start with admin privileges.'));
