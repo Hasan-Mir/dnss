@@ -1,0 +1,6 @@
+node_modules/
+package-lock.json
+dist/
+dnsChanger-desktop-main/
+packages/gui/src-tauri/target/
+packages/gui/src-tauri/gen/

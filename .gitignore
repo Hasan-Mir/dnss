@@ -1,3 +1,25 @@
+# Dependencies
 node_modules/
+
+# Build output
 dist/
 build/
+packages/*/dist/
+packages/gui/src-tauri/target/
+
+# Pasted reference project (not part of the source tree)
+dnsChanger-desktop-main/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor/OS
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+
+# Tauri generated files
+packages/gui/src-tauri/gen/

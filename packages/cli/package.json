@@ -1,0 +1,48 @@
+{
+    "name": "dnss",
+    "version": "1.0.0",
+    "description": "DNSS (DNS Switch) - a CLI to change your DNS servers on Windows, macOS and Linux. DNS changer with built-in presets, benchmarking and easy config management.",
+    "keywords": [
+        "dns",
+        "dns changer",
+        "dns switch",
+        "dnss",
+        "network",
+        "netsh",
+        "cli",
+        "dns-changer"
+    ],
+    "license": "MIT",
+    "bin": {
+        "dnss": "dist/index.js"
+    },
+    "main": "dist/index.js",
+    "files": [
+        "dist",
+        "README.md"
+    ],
+    "scripts": {
+        "build": "tsc",
+        "typecheck": "tsc --noEmit --skipLibCheck",
+        "prettier": "prettier --write .",
+        "prettier:check": "prettier --check .",
+        "start": "node dist/index.js",
+        "dev": "ts-node src/index.ts"
+    },
+    "dependencies": {
+        "@dnss/core": "^1.0.0",
+        "chalk": "^4.1.2",
+        "inquirer": "^12.4.1"
+    },
+    "devDependencies": {
+        "@types/node": "^22.20.1",
+        "ts-node": "^10.9.2",
+        "typescript": "^5.7.3"
+    },
+    "engines": {
+        "node": ">=18"
+    },
+    "repository": {
+        "type": "git"
+    }
+}

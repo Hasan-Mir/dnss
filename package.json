@@ -1,23 +1,38 @@
 {
-    "name": "dns-changer-cli",
+    "name": "dnss",
     "version": "1.0.0",
-    "main": "index.js",
+    "private": true,
+    "description": "DNSS (DNS Switch) - Change your DNS servers with a CLI or a modern desktop app",
+    "keywords": [
+        "dns",
+        "dns changer",
+        "dns-switch",
+        "dnss",
+        "network"
+    ],
+    "license": "MIT",
+    "workspaces": [
+        "packages/*"
+    ],
     "scripts": {
-        "build": "tsc",
-        "start": "node dist/index.js",
-        "dev": "ts-node src/index.ts",
-        "typecheck": "tsc --noEmit --skipLibCheck"
+        "build": "npm run build --workspaces --if-present",
+        "build:core": "npm run build --workspace @dnss/core",
+        "build:cli": "npm run build --workspace dnss",
+        "build:gui": "npm run build --workspace @dnss/gui",
+        "start": "npm run start --workspace dnss",
+        "tauri": "npm run tauri --workspace @dnss/gui",
+        "typecheck": "npm run typecheck --workspaces --if-present",
+        "test": "npm run test --workspaces --if-present",
+        "prettier": "prettier --write .",
+        "prettier:check": "prettier --check ."
     },
-    "keywords": [],
-    "author": "",
-    "license": "ISC",
-    "description": "",
-    "dependencies": {
-        "chalk": "^4.1.2",
-        "inquirer": "^12.4.1"
+    "engines": {
+        "node": ">=18"
+    },
+    "allowScripts": {
+        "esbuild@0.21.5": true
     },
     "devDependencies": {
-        "@types/node": "^22.20.1",
-        "typescript": "^5.7.3"
+        "prettier": "^3.9.6"
     }
 }

@@ -1,0 +1,39 @@
+{
+    "name": "@dnss/core",
+    "version": "1.0.0",
+    "description": "Shared core for DNSS: DNS presets, validation, config storage and benchmarking",
+    "license": "MIT",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "default": "./dist/index.js"
+        },
+        "./presets": {
+            "types": "./dist/presets.d.ts",
+            "default": "./dist/presets.js"
+        },
+        "./validate": {
+            "types": "./dist/validate.d.ts",
+            "default": "./dist/validate.js"
+        }
+    },
+    "files": [
+        "dist"
+    ],
+    "publishConfig": {
+        "access": "public"
+    },
+    "scripts": {
+        "build": "tsc",
+        "typecheck": "tsc --noEmit --skipLibCheck",
+        "prettier": "prettier --write .",
+        "prettier:check": "prettier --check .",
+        "test": "node --test tests/validate.test.mjs"
+    },
+    "devDependencies": {
+        "@types/node": "^22.20.1",
+        "typescript": "^5.7.3"
+    }
+}
