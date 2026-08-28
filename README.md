@@ -5,7 +5,7 @@
 > It ships in two flavors that share the same core:
 >
 > - **🖥 Desktop app** (`packages/gui`) — modern GUI built with [Tauri 2](https://v2.tauri.app/) + React, dark/light theme, DNS benchmarking. Tiny footprint (~10 MB, no Electron).
-> - **⌨ CLI** (`packages/cli`) — published on npm as **`dnss`**, usable directly with `npx`.
+> - **⌨ CLI** (`packages/cli`) — published on npm as **`@seymi/dnss-cli`**, usable directly with `npx` (the command is `dnss`).
 
 ---
 
