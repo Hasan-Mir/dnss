@@ -3,6 +3,10 @@
     "version": "1.0.0",
     "description": "Shared core for DNSS: DNS presets, validation, config storage and benchmarking",
     "license": "MIT",
+    "author": "SeyMi",
+    "maintainers": [
+        "SeyMi"
+    ],
     "main": "dist/index.js",
     "types": "dist/index.d.ts",
     "exports": {
@@ -22,6 +26,14 @@
     "files": [
         "dist"
     ],
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/Hasan-Mir/dns-changer.git"
+    },
+    "bugs": {
+        "url": "https://github.com/Hasan-Mir/dns-changer/issues"
+    },
+    "homepage": "https://github.com/Hasan-Mir/dns-changer#readme",
     "publishConfig": {
         "access": "public"
     },

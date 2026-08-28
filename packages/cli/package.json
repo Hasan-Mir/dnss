@@ -13,6 +13,10 @@
         "dns-changer"
     ],
     "license": "MIT",
+    "author": "SeyMi",
+    "maintainers": [
+        "SeyMi"
+    ],
     "bin": {
         "dnss": "dist/index.js"
     },
@@ -43,6 +47,11 @@
         "node": ">=18"
     },
     "repository": {
-        "type": "git"
-    }
+        "type": "git",
+        "url": "https://github.com/Hasan-Mir/dns-changer.git"
+    },
+    "bugs": {
+        "url": "https://github.com/Hasan-Mir/dns-changer/issues"
+    },
+    "homepage": "https://github.com/Hasan-Mir/dns-changer#readme"
 }
