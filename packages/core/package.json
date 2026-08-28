@@ -1,5 +1,5 @@
 {
-    "name": "@dnss/core",
+    "name": "@seymi/dnss-core",
     "version": "1.0.0",
     "description": "Shared core for DNSS: DNS presets, validation, config storage and benchmarking",
     "license": "MIT",

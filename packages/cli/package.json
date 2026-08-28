@@ -1,5 +1,5 @@
 {
-    "name": "dnss",
+    "name": "@seymi/dnss-cli",
     "version": "1.0.0",
     "description": "DNSS (DNS Switch) - a CLI to change your DNS servers on Windows, macOS and Linux. DNS changer with built-in presets, benchmarking and easy config management.",
     "keywords": [
@@ -34,7 +34,7 @@
         "dev": "ts-node src/index.ts"
     },
     "dependencies": {
-        "@dnss/core": "^1.0.0",
+        "@seymi/dnss-core": "^1.0.0",
         "chalk": "^4.1.2",
         "inquirer": "^12.4.1"
     },
@@ -45,6 +45,9 @@
     },
     "engines": {
         "node": ">=18"
+    },
+    "publishConfig": {
+        "access": "public"
     },
     "repository": {
         "type": "git",

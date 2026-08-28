@@ -1,5 +1,5 @@
 {
-    "name": "@dnss/gui",
+    "name": "@seymi/dnss-gui",
     "version": "0.1.0",
     "private": true,
     "description": "DNSS desktop app - modern GUI for switching DNS servers",
@@ -14,7 +14,7 @@
         "tauri": "tauri"
     },
     "dependencies": {
-        "@dnss/core": "^1.0.0",
+        "@seymi/dnss-core": "^1.0.0",
         "@tauri-apps/api": "^2.0.0",
         "react": "^18.3.1",
         "react-dom": "^18.3.1"

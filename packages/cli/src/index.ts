@@ -28,7 +28,7 @@ import {
     removeConfig,
     saveConfigs,
     validateIPv4,
-} from '@dnss/core';
+} from '@seymi/dnss-core';
 
 function getOS(): OsType {
     return getOsType();

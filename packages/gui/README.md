@@ -1,4 +1,4 @@
-# @dnss/gui
+# @seymi/dnss-gui
 
 DNSS desktop app — [Tauri 2](https://v2.tauri.app/) + React.
 

@@ -29,10 +29,10 @@
 
 ```bash
 # run once without installing
-npx dnss
+npx @seymi/dnss-cli
 
-# or install globally
-npm install -g dnss
+# or install globally (the command is "dnss")
+npm install -g @seymi/dnss-cli
 dnss
 ```
 
@@ -61,7 +61,7 @@ On Windows, the app is built with a `requireAdministrator` manifest: the UAC dia
 ```
 packages/
 ├── core/   # Shared TypeScript: presets, validation, config storage, benchmark
-├── cli/    # The "dnss" npm package (interactive CLI)
+├── cli/    # The "@seymi/dnss-cli" npm package (interactive CLI)
 └── gui/    # Tauri 2 + React desktop app
     ├── src/         # React frontend (dark/light theme, server list, settings)
     └── src-tauri/   # Rust backend (adapters, DNS commands, DNS benchmark)
@@ -98,20 +98,21 @@ DNSS collects **nothing**. No telemetry, no analytics, no accounts. The only net
 
 ## 🚀 Publishing (maintainers)
 
-npm workspaces automatically link `@dnss/core` to the local package while its
+npm workspaces automatically link `@seymi/dnss-core` to the local package while its
 version satisfies the `^1.0.0` range declared by the CLI and GUI. On the
 registry, publish the core first so the CLI never resolves to a dead
 dependency:
 
 ```bash
 # 1. the shared core must exist on the registry first
-npm publish --workspace @dnss/core
+npm publish --workspace @seymi/dnss-core
 
-# 2. then the CLI ("npx dnss" works from this point on)
-npm publish --workspace dnss
+# 2. then the CLI (installed/run as "dnss"; published as @seymi/dnss-cli)
+npm publish --workspace @seymi/dnss-cli
 ```
 
-`@dnss/core` declares `publishConfig.access: "public"` (required for scoped packages).
+`@seymi/dnss-core` and `@seymi/dnss-cli` are scoped, so they declare
+`publishConfig.access: "public"` (required for scoped packages).
 
 ## 📄 License
 

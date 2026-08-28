@@ -11,10 +11,10 @@ export default defineConfig({
         alias: {
             // Use the TypeScript sources directly to avoid CJS/ESM interop
             // issues with the workspace package's CommonJS build.
-            '@dnss/core/presets': fileURLToPath(
+            '@seymi/dnss-core/presets': fileURLToPath(
                 new URL('../core/src/presets.ts', import.meta.url)
             ),
-            '@dnss/core/validate': fileURLToPath(
+            '@seymi/dnss-core/validate': fileURLToPath(
                 new URL('../core/src/validate.ts', import.meta.url)
             ),
         },

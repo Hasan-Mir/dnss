@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { DNS_PRESETS, type DnsPreset } from '@dnss/core/presets';
-import { validateIPv4 } from '@dnss/core/validate';
+import { DNS_PRESETS, type DnsPreset } from '@seymi/dnss-core/presets';
+import { validateIPv4 } from '@seymi/dnss-core/validate';
 import { api, type DnsConfig } from '../api';
 
 interface PingState {

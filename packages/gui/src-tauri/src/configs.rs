@@ -1,6 +1,6 @@
 //! Persistent storage for user-saved DNS configurations.
 //!
-//! Storage layout (shared with the CLI's `@dnss/core` config store):
+//! Storage layout (shared with the CLI's `@seymi/dnss-core` config store):
 //!   ~/.dnss/configs.json
 //!
 //! Sharing one file keeps custom servers in sync between the CLI and the
