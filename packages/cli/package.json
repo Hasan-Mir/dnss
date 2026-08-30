@@ -52,10 +52,10 @@
     },
     "repository": {
         "type": "git",
-        "url": "https://github.com/Hasan-Mir/dns-changer.git"
+        "url": "https://github.com/Hasan-Mir/dnss.git"
     },
     "bugs": {
-        "url": "https://github.com/Hasan-Mir/dns-changer/issues"
+        "url": "https://github.com/Hasan-Mir/dnss/issues"
     },
-    "homepage": "https://github.com/Hasan-Mir/dns-changer#readme"
+    "homepage": "https://github.com/Hasan-Mir/dnss#readme"
 }

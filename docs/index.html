@@ -3,7 +3,9 @@
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>DNSS - Free, open-source DNS switcher for Windows, macOS and Linux</title>
+        <title>
+            DNSS - Free, open-source DNS switcher for Windows, macOS and Linux
+        </title>
         <meta
             name="description"
             content="DNSS is a free, open-source desktop app that switches your DNS between Cloudflare, Google, AdGuard, Shecan and more in one click. Also available as a CLI."
@@ -16,14 +18,20 @@
                 try {
                     var t = localStorage.getItem('dnss-site-theme');
                     if (t !== 'dark' && t !== 'light') {
-                        t = window.matchMedia('(prefers-color-scheme: light)').matches
+                        t = window.matchMedia('(prefers-color-scheme: light)')
+                            .matches
                             ? 'light'
                             : 'dark';
                     }
                     document.documentElement.dataset.theme = t;
                     var l = localStorage.getItem('dnss-site-lang');
                     if (l !== 'fa' && l !== 'en') {
-                        l = (navigator.language || '').toLowerCase().indexOf('fa') === 0 ? 'fa' : 'en';
+                        l =
+                            (navigator.language || '')
+                                .toLowerCase()
+                                .indexOf('fa') === 0
+                                ? 'fa'
+                                : 'en';
                     }
                     document.documentElement.lang = l;
                     document.documentElement.dir = l === 'fa' ? 'rtl' : 'ltr';
@@ -40,19 +48,26 @@
         <meta property="og:type" content="website" />
         <meta
             property="og:image"
-            content="https://hasan-mir.github.io/dns-changer/assets/app-home-dark.png"
+            content="https://hasan-mir.github.io/dnss/assets/app-home-dark.png"
         />
         <link rel="icon" type="image/png" href="assets/icon-128.png" />
         <link rel="stylesheet" href="styles.css" />
         <script src="app.js" defer></script>
     </head>
     <body>
-        <a class="skip-link" href="#main" data-i18n="a11y.skip">Skip to content</a>
+        <a class="skip-link" href="#main" data-i18n="a11y.skip"
+            >Skip to content</a
+        >
 
         <header class="site-header">
             <div class="container header-inner">
                 <a class="brand" href="#top" aria-label="DNSS home">
-                    <img src="assets/icon-128.png" alt="" width="30" height="30" />
+                    <img
+                        src="assets/icon-128.png"
+                        alt=""
+                        width="30"
+                        height="30"
+                    />
                     <span class="brand-name">DNSS</span>
                 </a>
                 <nav class="nav-links" aria-label="Primary">
@@ -81,7 +96,7 @@
                     </button>
                     <a
                         class="btn btn-ghost btn-small gh-link"
-                        href="https://github.com/Hasan-Mir/dns-changer"
+                        href="https://github.com/Hasan-Mir/dnss"
                         target="_blank"
                         rel="noopener noreferrer"
                     >
@@ -97,28 +112,42 @@
             <section class="hero" id="top">
                 <div class="container hero-grid">
                     <div class="hero-copy">
-                        <p class="eyebrow" data-i18n="hero.eyebrow">Free &amp; open source</p>
+                        <p class="eyebrow" data-i18n="hero.eyebrow">
+                            Free &amp; open source
+                        </p>
                         <h1 class="hero-title">
-                            <span data-i18n="hero.title.a">Switch your DNS in</span>
-                            <span class="accent" data-i18n="hero.title.b">one click.</span>
+                            <span data-i18n="hero.title.a"
+                                >Switch your DNS in</span
+                            >
+                            <span class="accent" data-i18n="hero.title.b"
+                                >one click.</span
+                            >
                         </h1>
                         <p class="hero-sub" data-i18n="hero.sub">
-                            A free, open-source desktop app that switches between Cloudflare,
-                            Google, AdGuard, Shecan and more. No netsh, no settings digging.
+                            A free, open-source desktop app that switches
+                            between Cloudflare, Google, AdGuard, Shecan and
+                            more. No netsh, no settings digging.
                         </p>
                         <div class="hero-cta">
                             <a class="btn btn-primary" href="#download">
-                                <i class="icon i-download" aria-hidden="true"></i>
-                                <span data-i18n="hero.cta.download">Download</span>
+                                <i
+                                    class="icon i-download"
+                                    aria-hidden="true"
+                                ></i>
+                                <span data-i18n="hero.cta.download"
+                                    >Download</span
+                                >
                             </a>
                             <a
                                 class="btn btn-ghost"
-                                href="https://github.com/Hasan-Mir/dns-changer"
+                                href="https://github.com/Hasan-Mir/dnss"
                                 target="_blank"
                                 rel="noopener noreferrer"
                             >
                                 <i class="icon i-github" aria-hidden="true"></i>
-                                <span data-i18n="hero.cta.github">View on GitHub</span>
+                                <span data-i18n="hero.cta.github"
+                                    >View on GitHub</span
+                                >
                             </a>
                         </div>
                     </div>
@@ -151,42 +180,57 @@
                         Get DNSS for your platform
                     </h2>
                     <p class="section-sub" data-i18n="dl.sub">
-                        Every release ships installers for all three systems, built automatically
-                        on GitHub.
+                        Every release ships installers for all three systems,
+                        built automatically on GitHub.
                     </p>
                     <div class="dl-grid">
                         <a
                             class="dl-card"
-                            href="https://github.com/Hasan-Mir/dns-changer/releases/latest"
+                            href="https://github.com/Hasan-Mir/dnss/releases/latest"
                             target="_blank"
                             rel="noopener noreferrer"
                         >
-                            <i class="icon dl-icon i-brand-windows" aria-hidden="true"></i>
-                            <span class="dl-name" data-i18n="dl.windows.name">Windows</span>
+                            <i
+                                class="icon dl-icon i-brand-windows"
+                                aria-hidden="true"
+                            ></i>
+                            <span class="dl-name" data-i18n="dl.windows.name"
+                                >Windows</span
+                            >
                             <span class="dl-hint" data-i18n="dl.windows.hint">
                                 EXE and MSI installers
                             </span>
                         </a>
                         <a
                             class="dl-card"
-                            href="https://github.com/Hasan-Mir/dns-changer/releases/latest"
+                            href="https://github.com/Hasan-Mir/dnss/releases/latest"
                             target="_blank"
                             rel="noopener noreferrer"
                         >
-                            <i class="icon dl-icon i-brand-apple" aria-hidden="true"></i>
-                            <span class="dl-name" data-i18n="dl.macos.name">macOS</span>
+                            <i
+                                class="icon dl-icon i-brand-apple"
+                                aria-hidden="true"
+                            ></i>
+                            <span class="dl-name" data-i18n="dl.macos.name"
+                                >macOS</span
+                            >
                             <span class="dl-hint" data-i18n="dl.macos.hint">
                                 DMG for Intel and Apple silicon
                             </span>
                         </a>
                         <a
                             class="dl-card"
-                            href="https://github.com/Hasan-Mir/dns-changer/releases/latest"
+                            href="https://github.com/Hasan-Mir/dnss/releases/latest"
                             target="_blank"
                             rel="noopener noreferrer"
                         >
-                            <i class="icon dl-icon i-brand-linux" aria-hidden="true"></i>
-                            <span class="dl-name" data-i18n="dl.linux.name">Linux</span>
+                            <i
+                                class="icon dl-icon i-brand-linux"
+                                aria-hidden="true"
+                            ></i>
+                            <span class="dl-name" data-i18n="dl.linux.name"
+                                >Linux</span
+                            >
                             <span class="dl-hint" data-i18n="dl.linux.hint">
                                 AppImage, DEB and RPM
                             </span>
@@ -197,8 +241,13 @@
                             target="_blank"
                             rel="noopener noreferrer"
                         >
-                            <i class="icon dl-icon i-brand-npm" aria-hidden="true"></i>
-                            <span class="dl-name" data-i18n="dl.cli.name">CLI</span>
+                            <i
+                                class="icon dl-icon i-brand-npm"
+                                aria-hidden="true"
+                            ></i>
+                            <span class="dl-name" data-i18n="dl.cli.name"
+                                >CLI</span
+                            >
                             <span class="dl-hint" data-i18n="dl.cli.hint">
                                 Runs with npx, Node 18+
                             </span>
@@ -214,51 +263,89 @@
                         Everything a DNS switcher needs
                     </h2>
                     <p class="section-sub" data-i18n="ft.sub">
-                        The app and the CLI share one core, so what you see here is what you get
-                        in the terminal.
+                        The app and the CLI share one core, so what you see here
+                        is what you get in the terminal.
                     </p>
                     <div class="bento">
                         <article class="cell span-7 cell-tint">
-                            <h3 class="cell-title" data-i18n="ft.presets.h">17 presets built in</h3>
+                            <h3 class="cell-title" data-i18n="ft.presets.h">
+                                17 presets built in
+                            </h3>
                             <p class="cell-body" data-i18n="ft.presets.p">
-                                Pick a provider and hit Apply. Global resolvers alongside Iranian
-                                services like Shecan, Electro and Radar Game.
+                                Pick a provider and hit Apply. Global resolvers
+                                alongside Iranian services like Shecan, Electro
+                                and Radar Game.
                             </p>
-                            <ul class="preset-chips" aria-label="Built-in DNS presets">
-                                <li class="chip"><b>Cloudflare</b><code>1.1.1.1</code></li>
+                            <ul
+                                class="preset-chips"
+                                aria-label="Built-in DNS presets"
+                            >
+                                <li class="chip">
+                                    <b>Cloudflare</b><code>1.1.1.1</code>
+                                </li>
                                 <li class="chip chip-active">
-                                    <i class="icon i-check" aria-hidden="true"></i>
+                                    <i
+                                        class="icon i-check"
+                                        aria-hidden="true"
+                                    ></i>
                                     <b>Google</b><code>8.8.8.8</code>
                                 </li>
-                                <li class="chip"><b>AdGuard</b><code>94.140.14.14</code></li>
-                                <li class="chip"><b>Quad9</b><code>9.9.9.9</code></li>
-                                <li class="chip"><b>OpenDNS</b><code>208.67.222.222</code></li>
-                                <li class="chip"><b>Mullvad</b><code>194.242.2.2</code></li>
-                                <li class="chip"><b>Shecan</b><code>178.22.122.100</code></li>
-                                <li class="chip"><b>Electro</b><code>78.157.42.100</code></li>
-                                <li class="chip"><b>Radar Game</b><code>10.202.10.10</code></li>
-                                <li class="chip"><b>Begzar</b><code>185.55.226.26</code></li>
-                                <li class="chip chip-more" data-i18n="ft.presets.more">
+                                <li class="chip">
+                                    <b>AdGuard</b><code>94.140.14.14</code>
+                                </li>
+                                <li class="chip">
+                                    <b>Quad9</b><code>9.9.9.9</code>
+                                </li>
+                                <li class="chip">
+                                    <b>OpenDNS</b><code>208.67.222.222</code>
+                                </li>
+                                <li class="chip">
+                                    <b>Mullvad</b><code>194.242.2.2</code>
+                                </li>
+                                <li class="chip">
+                                    <b>Shecan</b><code>178.22.122.100</code>
+                                </li>
+                                <li class="chip">
+                                    <b>Electro</b><code>78.157.42.100</code>
+                                </li>
+                                <li class="chip">
+                                    <b>Radar Game</b><code>10.202.10.10</code>
+                                </li>
+                                <li class="chip">
+                                    <b>Begzar</b><code>185.55.226.26</code>
+                                </li>
+                                <li
+                                    class="chip chip-more"
+                                    data-i18n="ft.presets.more"
+                                >
                                     +7 more
                                 </li>
                             </ul>
                         </article>
                         <article class="cell span-5">
-                            <i class="icon cell-icon i-bolt" aria-hidden="true"></i>
-                            <h3 class="cell-title" data-i18n="ft.oneclick.h">One click to switch</h3>
+                            <i
+                                class="icon cell-icon i-bolt"
+                                aria-hidden="true"
+                            ></i>
+                            <h3 class="cell-title" data-i18n="ft.oneclick.h">
+                                One click to switch
+                            </h3>
                             <p class="cell-body" data-i18n="ft.oneclick.p">
-                                The home screen is one big power button. Tap it to restore DHCP or
-                                jump back to your last DNS.
+                                The home screen is one big power button. Tap it
+                                to restore DHCP or jump back to your last DNS.
                             </p>
                         </article>
                         <article class="cell span-5">
-                            <i class="icon cell-icon i-gauge" aria-hidden="true"></i>
+                            <i
+                                class="icon cell-icon i-gauge"
+                                aria-hidden="true"
+                            ></i>
                             <h3 class="cell-title" data-i18n="ft.bench.h">
                                 Benchmark before you switch
                             </h3>
                             <p class="cell-body" data-i18n="ft.bench.p">
-                                Measure resolve and connect times for every preset and pick the
-                                fastest for your line.
+                                Measure resolve and connect times for every
+                                preset and pick the fastest for your line.
                             </p>
                         </article>
                         <article class="cell span-7 cell-media">
@@ -272,37 +359,64 @@
                             />
                         </article>
                         <article class="cell span-7">
-                            <i class="icon cell-icon i-settings" aria-hidden="true"></i>
-                            <h3 class="cell-title" data-i18n="ft.control.h">Fine-grained control</h3>
+                            <i
+                                class="icon cell-icon i-settings"
+                                aria-hidden="true"
+                            ></i>
+                            <h3 class="cell-title" data-i18n="ft.control.h">
+                                Fine-grained control
+                            </h3>
                             <ul class="control-list">
                                 <li>
-                                    <i class="icon i-check" aria-hidden="true"></i>
+                                    <i
+                                        class="icon i-check"
+                                        aria-hidden="true"
+                                    ></i>
                                     <span data-i18n="ft.control.a">
                                         Apply to one adapter or to all of them
                                     </span>
                                 </li>
                                 <li>
-                                    <i class="icon i-check" aria-hidden="true"></i>
+                                    <i
+                                        class="icon i-check"
+                                        aria-hidden="true"
+                                    ></i>
                                     <span data-i18n="ft.control.b">
                                         Save your own named configurations
                                     </span>
                                 </li>
                                 <li>
-                                    <i class="icon i-check" aria-hidden="true"></i>
-                                    <span data-i18n="ft.control.c">Reset adapters to DHCP</span>
+                                    <i
+                                        class="icon i-check"
+                                        aria-hidden="true"
+                                    ></i>
+                                    <span data-i18n="ft.control.c"
+                                        >Reset adapters to DHCP</span
+                                    >
                                 </li>
                                 <li>
-                                    <i class="icon i-check" aria-hidden="true"></i>
-                                    <span data-i18n="ft.control.d">Flush the OS DNS cache</span>
+                                    <i
+                                        class="icon i-check"
+                                        aria-hidden="true"
+                                    ></i>
+                                    <span data-i18n="ft.control.d"
+                                        >Flush the OS DNS cache</span
+                                    >
                                 </li>
                             </ul>
                         </article>
                         <article class="cell span-5 cell-tint">
-                            <i class="icon cell-icon i-shield" aria-hidden="true"></i>
-                            <h3 class="cell-title" data-i18n="ft.privacy.h">Private and light</h3>
+                            <i
+                                class="icon cell-icon i-shield"
+                                aria-hidden="true"
+                            ></i>
+                            <h3 class="cell-title" data-i18n="ft.privacy.h">
+                                Private and light
+                            </h3>
                             <p class="cell-body" data-i18n="ft.privacy.p">
-                                No telemetry, no analytics, no accounts. Around 10 MB with no
-                                Electron in sight. Dark and light themes, English and Persian.
+                                No telemetry, no analytics, no accounts. Around
+                                10 MB with no Electron in sight. Dark and light
+                                themes, English and Persian.
                             </p>
                         </article>
                     </div>
@@ -313,11 +427,13 @@
             <section class="cli section-soft" id="cli">
                 <div class="container cli-grid">
                     <div class="cli-copy">
-                        <h2 class="section-title" data-i18n="cli.title">Runs in your terminal too</h2>
+                        <h2 class="section-title" data-i18n="cli.title">
+                            Runs in your terminal too
+                        </h2>
                         <p class="section-sub" data-i18n="cli.p">
-                            The CLI shares the core with the app: same presets, same configs file,
-                            same benchmark. Start it with npx, nothing to install. Requires Node
-                            18+.
+                            The CLI shares the core with the app: same presets,
+                            same configs file, same benchmark. Start it with
+                            npx, nothing to install. Requires Node 18+.
                         </p>
                         <a
                             class="btn btn-ghost"
@@ -336,7 +452,9 @@
                             <span class="dot dot-g"></span>
                             <span class="shot-title">dnss</span>
                         </div>
-                        <pre class="term-body"><code><span class="t-prompt">$</span> npx @seymi/dnss-cli
+                        <pre
+                            class="term-body"
+                        ><code><span class="t-prompt">$</span> npx @seymi/dnss-cli
 <span class="t-q">? What would you like to do?</span>
 <span class="t-cursor">❯</span> Change DNS settings
   Benchmark DNS servers
@@ -362,23 +480,29 @@
         <footer class="site-footer">
             <div class="container footer-inner">
                 <div class="footer-brand">
-                    <img src="assets/icon-128.png" alt="" width="34" height="34" />
+                    <img
+                        src="assets/icon-128.png"
+                        alt=""
+                        width="34"
+                        height="34"
+                    />
                     <div>
                         <p class="footer-name">DNSS</p>
                         <p class="footer-tag" data-i18n="footer.tag">
-                            A free, open-source DNS changer for Windows, macOS and Linux.
+                            A free, open-source DNS changer for Windows, macOS
+                            and Linux.
                         </p>
                     </div>
                 </div>
                 <nav class="footer-links" aria-label="Footer">
                     <a
-                        href="https://github.com/Hasan-Mir/dns-changer"
+                        href="https://github.com/Hasan-Mir/dnss"
                         target="_blank"
                         rel="noopener noreferrer"
                         >GitHub</a
                     >
                     <a
-                        href="https://github.com/Hasan-Mir/dns-changer/releases/latest"
+                        href="https://github.com/Hasan-Mir/dnss/releases/latest"
                         target="_blank"
                         rel="noopener noreferrer"
                         data-i18n="footer.releases"
@@ -392,7 +516,7 @@
                         >npm</a
                     >
                     <a
-                        href="https://github.com/Hasan-Mir/dns-changer/blob/main/LICENSE"
+                        href="https://github.com/Hasan-Mir/dnss/blob/main/LICENSE"
                         target="_blank"
                         rel="noopener noreferrer"
                         data-i18n="footer.license"
@@ -403,7 +527,8 @@
             </div>
             <div class="container footer-bottom">
                 <p data-i18n="footer.rights">
-                    © 2026 SeyMi. DNSS collects nothing: no telemetry, no analytics.
+                    © 2026 SeyMi. DNSS collects nothing: no telemetry, no
+                    analytics.
                 </p>
             </div>
         </footer>

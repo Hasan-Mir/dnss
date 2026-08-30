@@ -1,6 +1,6 @@
 # DNSS — DNS Switcher CLI
 
-**@seymi/dnss-cli** is the command-line flavor of [DNSS](https://github.com/Hasan-Mir/dns-changer), a free, open-source **DNS changer** for Windows, macOS and Linux. Switch between popular DNS providers (Cloudflare, Google, AdGuard, Shecan, …) with an interactive menu — no manual `netsh` commands, no digging through settings.
+**@seymi/dnss-cli** is the command-line flavor of [DNSS](https://github.com/Hasan-Mir/dnss), a free, open-source **DNS changer** for Windows, macOS and Linux. Switch between popular DNS providers (Cloudflare, Google, AdGuard, Shecan, …) with an interactive menu — no manual `netsh` commands, no digging through settings.
 
 ## ✨ Features
 
@@ -45,7 +45,7 @@ The CLI relaunches itself with administrator privileges automatically (UAC on Wi
 
 ## 🗄 Storage
 
-Saved configurations live in `~/.dnss/configs.json` (configs from the old `~/.dnschanger.json` are imported automatically). The file is written atomically with a 0600 temp file and never through planted symlinks; recovery copies are kept next to it when something goes wrong: `.bak` (previous good state), `.corrupt` (unparseable file) and `.invalid` (entries dropped by validation). The CLI and the [desktop app](https://github.com/Hasan-Mir/dns-changer) share this file.
+Saved configurations live in `~/.dnss/configs.json` (configs from the old `~/.dnschanger.json` are imported automatically). The file is written atomically with a 0600 temp file and never through planted symlinks; recovery copies are kept next to it when something goes wrong: `.bak` (previous good state), `.corrupt` (unparseable file) and `.invalid` (entries dropped by validation). The CLI and the [desktop app](https://github.com/Hasan-Mir/dnss) share this file.
 
 ## 🛡 Privacy
 
@@ -53,4 +53,4 @@ DNSS collects **nothing**. No telemetry, no analytics, no accounts. The only net
 
 ## 📄 License
 
-[MIT](https://github.com/Hasan-Mir/dns-changer/blob/main/LICENSE)
+[MIT](https://github.com/Hasan-Mir/dnss/blob/main/LICENSE)
