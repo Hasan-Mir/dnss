@@ -1,6 +1,6 @@
 {
     "name": "@seymi/dnss-gui",
-    "version": "0.1.0",
+    "version": "1.0.0",
     "private": true,
     "description": "DNSS desktop app - modern GUI for switching DNS servers",
     "license": "MIT",
