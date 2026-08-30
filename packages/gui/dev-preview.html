@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>DNSS preview (mock IPC)</title>
+    </head>
+    <body>
+        <div id="root"></div>
+        <script>
+            // Dev-only harness: stubs the Tauri IPC bridge with mock data so
+            // the full UI can be exercised in a regular browser. The real
+            // app entry is index.html — this file is never bundled.
+            (function () {
+                let configs = [
+                    { name: 'Bertina', primary: '193.186.32.32' },
+                    {
+                        name: 'Home DNS',
+                        primary: '185.51.200.2',
+                        alternative: '178.22.122.100',
+                    },
+                ];
+                let status = {
+                    static_servers: ['193.186.32.32'],
+                    in_use: ['193.186.32.32'],
+                };
+                let adapters = [
+                    {
+                        name: 'Wi-Fi',
+                        kind: 'Wireless LAN',
+                        is_default: true,
+                        dns_servers: ['193.186.32.32'],
+                        dns_static: true,
+                    },
+                    {
+                        name: 'Ethernet',
+                        kind: 'Realtek PCIe GbE',
+                        is_default: false,
+                        dns_servers: ['192.168.1.1'],
+                        dns_static: false,
+                    },
+                    {
+                        name: 'vEthernet (WSL)',
+                        kind: 'Hyper-V Virtual',
+                        is_default: false,
+                        dns_servers: [],
+                        dns_static: false,
+                    },
+                    {
+                        name: 'OpenVPN Connect DCO',
+                        kind: 'VPN Adapter',
+                        is_default: false,
+                        dns_servers: [],
+                        dns_static: false,
+                    },
+                ];
+                const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+                // Simulates the real backend's latency so busy indicators
+                // (top loading bar, spinners) are observable in the harness.
+                async function invoke(cmd, args) {
+                    switch (cmd) {
+                        case 'get_network_status':
+                            await delay(400);
+                            return {
+                                adapters: JSON.parse(JSON.stringify(adapters)),
+                                default_adapter: 'Wi-Fi',
+                                active_dns: status,
+                            };
+                        case 'set_dns_many': {
+                            await delay(700);
+                            const names =
+                                args.adapters ??
+                                adapters.map((a) => a.name);
+                            for (const n of names) {
+                                const adapter = adapters.find(
+                                    (a) => a.name === n
+                                );
+                                if (!adapter) continue;
+                                adapter.dns_servers = args.servers.length
+                                    ? [...args.servers]
+                                    : ['192.168.1.1'];
+                                adapter.dns_static =
+                                    args.servers.length > 0;
+                            }
+                            const first = adapters.find(
+                                (a) => a.name === names[0]
+                            );
+                            status = args.servers.length
+                                ? {
+                                      static_servers: [...args.servers],
+                                      in_use: [...args.servers],
+                                  }
+                                : {
+                                      static_servers: [],
+                                      in_use: first
+                                          ? [...first.dns_servers]
+                                          : ['192.168.1.1'],
+                                  };
+                            return names.map((n) => ({
+                                adapter: n,
+                                ok: true,
+                                error: '',
+                            }));
+                        }
+                        case 'reset_all_dns': {
+                            await delay(900);
+                            for (const adapter of adapters) {
+                                // DHCP keeps a resolver on the connected
+                                // adapter; the rest end up with none.
+                                adapter.dns_servers = adapter.is_default
+                                    ? ['192.168.1.1']
+                                    : [];
+                                adapter.dns_static = false;
+                            }
+                            status = {
+                                static_servers: [],
+                                in_use: ['192.168.1.1'],
+                            };
+                            return adapters.map((a) => ({
+                                adapter: a.name,
+                                ok: true,
+                                error: '',
+                            }));
+                        }
+                        case 'flush_dns':
+                            // Deliberately faster than the UI's minimum busy
+                            // duration so the held-open indicator is provable.
+                            await delay(120);
+                            return null;
+                        case 'get_configs':
+                            return configs;
+                        case 'save_configs':
+                            configs = JSON.parse(JSON.stringify(args.configs));
+                            return configs;
+                        case 'plugin:opener|open_url':
+                            window.__openedUrl = args.url;
+                            console.log('[mock] open_url:', args.url);
+                            return null;
+                        case 'benchmark_dns':
+                            await new Promise((r) =>
+                                setTimeout(r, 300 + Math.random() * 700)
+                            );
+                            if (args.server === '194.242.2.2')
+                                throw new Error('DNS query timed out');
+                            return {
+                                resolve_ms: Math.round(
+                                    20 + Math.random() * 80
+                                ),
+                                connect_ms: Math.round(10 + Math.random() * 40),
+                                address: '104.16.123.96',
+                            };
+                        default:
+                            throw new Error('Unknown command: ' + cmd);
+                    }
+                }
+                window.__TAURI_INTERNALS__ = { invoke };
+            })();
+        </script>
+        <script type="module" src="/src/main.tsx"></script>
+    </body>
+</html>

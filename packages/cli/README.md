@@ -1,4 +1,4 @@
-# DNSS — DNS Switch CLI
+# DNSS — DNS Switcher CLI
 
 **@seymi/dnss-cli** is the command-line flavor of [DNSS](https://github.com/Hasan-Mir/dns-changer), a free, open-source **DNS changer** for Windows, macOS and Linux. Switch between popular DNS providers (Cloudflare, Google, AdGuard, Shecan, …) with an interactive menu — no manual `netsh` commands, no digging through settings.
 

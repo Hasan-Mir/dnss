@@ -1,4 +1,4 @@
-# DNSS — DNS Switch
+# DNSS — DNS Switcher
 
 **DNSS** (short for _DNS Switch_) is a free, open-source **DNS changer** for Windows, macOS and Linux. Switch between popular DNS providers (Cloudflare, Google, AdGuard, Shecan, …) with a modern desktop app or a simple CLI — no manual `netsh` commands, no diggings through settings.
 
@@ -47,14 +47,14 @@ Requirements: [Node.js 18+](https://nodejs.org), the [Rust toolchain](https://ww
 ```bash
 npm install
 
-# development (hot reload)
-npm run tauri dev
+# development (hot reload) — `npm run dev` is a shortcut for `npm run tauri dev`
+npm run dev
 
 # production build (installer + portable bundles per platform)
 npm run tauri build
 ```
 
-On Windows, the app is built with a `requireAdministrator` manifest: the UAC dialog appears **once at launch**, then every action inside the app runs elevated — no repeated prompts.
+On Windows, the app is built with a `requireAdministrator` manifest: the UAC dialog appears **once at launch**, then every action inside the app runs elevated — no repeated prompts. During development the debug build starts unelevated and relaunches itself through one UAC prompt (a `requireAdministrator` executable cannot be spawned by `cargo run` from a normal shell).
 
 ## 🗂 Project structure
 
@@ -71,7 +71,7 @@ packages/
 
 DNSS sets the resolver of your **active network adapter** (auto-detected via the default route; when none exists — e.g. offline — the adapter list still works and simply marks no default).
 
-- **Windows**: `Set-DnsClientServerAddress`, which replaces the *entire* address list of the adapter in one call — stale entries left behind by earlier tools cannot survive an apply, and a reset clears static resolvers of both address families.
+- **Windows**: `Set-DnsClientServerAddress`, which replaces the _entire_ address list of the adapter in one call — stale entries left behind by earlier tools cannot survive an apply, and a reset clears static resolvers of both address families.
 - **Linux**: `nmcli` connection profiles. Applying custom DNS also disables auto-learned **IPv6** resolvers (RA/RDNSS/DHCPv6) — otherwise dual-stack networks would keep querying the ISP's IPv6 resolver for AAAA records and bypass your choice. Resetting to DHCP restores automatic IPv6 DNS, and a bulk reset skips devices without an active NetworkManager connection (disconnected NICs, unmanaged devices) instead of failing.
 - **macOS**: `networksetup` network services. If the default route goes through a VPN tunnel (`utun*`/`ppp*`), which has no networksetup service, DNSS falls back to the first enabled physical service instead of failing.
 

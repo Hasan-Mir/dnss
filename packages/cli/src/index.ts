@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * DNSS (DNS Switch) - CLI
+ * DNSS (DNS Switcher) - CLI
  *
  * A cross-platform DNS changer with:
  *  - Saved DNS configurations (persisted in ~/.dnss/configs.json)

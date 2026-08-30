@@ -11,10 +11,12 @@ DNSS desktop app — [Tauri 2](https://v2.tauri.app/) + React.
 ## Commands (run from this folder)
 
 ```bash
-npm run tauri dev     # development with hot reload
-npm run tauri build   # production bundles (NSIS installer, MSI, AppImage, DMG...)
+npm run tauri:dev     # development with hot reload (same as `tauri dev`)
+npm run tauri:build   # production bundles (NSIS installer, MSI, AppImage, DMG...)
 npm run build         # frontend only (typecheck + vite build)
 ```
+
+From the repository root, `npm run dev` launches the desktop app directly.
 
 ## Elevation model
 

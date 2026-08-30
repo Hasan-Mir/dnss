@@ -1,96 +1,205 @@
+import { useRef, useState } from 'react';
+import {
+    ArrowUturnLeftIcon,
+    ComputerDesktopIcon,
+    LanguageIcon,
+    MoonIcon,
+    SunIcon,
+} from '@heroicons/react/24/outline';
+import { openExternal } from '../api';
+import FloatingPanel from '../components/FloatingPanel';
+import { LANGUAGES, type I18n, type Lang } from '../i18n';
 import type { ThemeMode } from '../theme';
 
 interface SettingsPageProps {
+    /** Translations + text direction + localized digits. */
+    i18n: I18n;
+    onLangChange: (lang: Lang) => void;
     theme: ThemeMode;
     onThemeChange: (mode: ThemeMode) => void;
+    /** True while ANY blocking operation runs — disables the controls. */
     busy: boolean;
+    /** True while the reset-all operation itself is running (spinner). */
+    resetBusy: boolean;
     onResetAll: () => void;
 }
 
+const INSPIRATION_URL = 'https://github.com/DnsChanger/dnsChanger-desktop';
+
 export default function SettingsPage({
+    i18n,
+    onLangChange,
     theme,
     onThemeChange,
     busy,
+    resetBusy,
     onResetAll,
 }: SettingsPageProps) {
-    return (
-        <div className="page settings-page">
-            <div className="page-header">
-                <h2>Settings</h2>
-            </div>
+    const { t } = i18n;
+    // In-app confirmation instead of window.confirm, which renders as a
+    // clashing native dialog inside the webview.
+    const [confirmReset, setConfirmReset] = useState(false);
+    const resetButtonRef = useRef<HTMLButtonElement | null>(null);
 
-            <div className="card">
-                <div className="field-label">Appearance</div>
-                <div className="segmented">
-                    {(['light', 'dark', 'system'] as ThemeMode[]).map(
-                        (mode) => (
-                            <button
-                                key={mode}
-                                className={`segment ${theme === mode ? 'active' : ''}`}
-                                onClick={() => onThemeChange(mode)}
-                            >
-                                {mode === 'light'
-                                    ? '☀ Light'
-                                    : mode === 'dark'
-                                      ? '☾ Dark'
-                                      : '◐ System'}
-                            </button>
-                        )
-                    )}
+    return (
+        <div className="mx-auto flex w-full max-w-2xl flex-col gap-4">
+            <h2 className="m-0 text-lg font-bold">{t('settings.title')}</h2>
+
+            <div className="card border border-base-300/40 bg-base-100 shadow-sm">
+                <div className="card-body gap-3 p-4">
+                    <div className="text-xs font-semibold opacity-70">
+                        {t('settings.appearance')}
+                    </div>
+                    <div className="join">
+                        {(['light', 'dark', 'system'] as ThemeMode[]).map(
+                            (mode) => (
+                                <button
+                                    key={mode}
+                                    className={`btn btn-sm join-item ${
+                                        theme === mode
+                                            ? 'btn-primary'
+                                            : 'btn-ghost'
+                                    }`}
+                                    onClick={() => onThemeChange(mode)}
+                                >
+                                    {mode === 'light' ? (
+                                        <SunIcon className="size-4" />
+                                    ) : mode === 'dark' ? (
+                                        <MoonIcon className="size-4" />
+                                    ) : (
+                                        <ComputerDesktopIcon className="size-4" />
+                                    )}
+                                    {mode === 'light'
+                                        ? t('settings.light')
+                                        : mode === 'dark'
+                                          ? t('settings.dark')
+                                          : t('settings.system')}
+                                </button>
+                            )
+                        )}
+                    </div>
                 </div>
             </div>
 
-            <div className="card">
-                <div className="field-label">Maintenance</div>
-                <p className="about-text hint">
-                    Removes static DNS servers from every adapter and switches
-                    them back to automatic (DHCP) configuration.
-                </p>
-                <button
-                    className="btn danger"
-                    disabled={busy}
-                    onClick={() => {
-                        if (
-                            window.confirm(
-                                'Reset DNS to automatic (DHCP) on ALL adapters?'
-                            )
-                        ) {
-                            onResetAll();
-                        }
-                    }}
-                >
-                    Reset all adapters to DHCP
-                </button>
+            <div className="card border border-base-300/40 bg-base-100 shadow-sm">
+                <div className="card-body gap-3 p-4">
+                    <div className="text-xs font-semibold opacity-70">
+                        {t('settings.language')}
+                    </div>
+                    <div className="join">
+                        {LANGUAGES.map((entry) => (
+                            <button
+                                key={entry.code}
+                                className={`btn btn-sm join-item ${
+                                    i18n.lang === entry.code
+                                        ? 'btn-primary'
+                                        : 'btn-ghost'
+                                }`}
+                                onClick={() => onLangChange(entry.code)}
+                            >
+                                <LanguageIcon className="size-4" />
+                                {entry.name}
+                            </button>
+                        ))}
+                    </div>
+                    <p className="m-0 text-xs leading-relaxed opacity-60">
+                        {t('settings.languageHint')}
+                    </p>
+                </div>
             </div>
 
-            <div className="card">
-                <div className="field-label">About</div>
-                <p className="about-text">
-                    <strong>DNSS</strong> (DNS Switch) — change your DNS servers
-                    in one click. Free and open source, MIT licensed.
-                </p>
-                <p className="about-text hint">
-                    Parts of this app (the DNS latency benchmark algorithm and
-                    the curated server preset ideas) are inspired by the
-                    open-source{' '}
-                    <a
-                        href="https://github.com/DnsChanger/dnsChanger-desktop"
-                        target="_blank"
-                        rel="noreferrer"
-                    >
-                        DnsChanger/dnsChanger-desktop
-                    </a>{' '}
-                    project. Thank you!
-                </p>
+            <div className="card border border-base-300/40 bg-base-100 shadow-sm">
+                <div className="card-body gap-2 p-4">
+                    <div className="text-xs font-semibold opacity-70">
+                        {t('settings.maintenance')}
+                    </div>
+                    <p className="m-0 text-xs leading-relaxed opacity-60">
+                        {t('settings.maintenanceDesc')}
+                    </p>
+                    <div className="flex justify-start">
+                        <button
+                            ref={resetButtonRef}
+                            className="btn btn-error btn-sm"
+                            disabled={busy}
+                            aria-expanded={confirmReset}
+                            onClick={() => setConfirmReset(true)}
+                        >
+                            {resetBusy ? (
+                                <span className="loading loading-spinner loading-xs" />
+                            ) : (
+                                <ArrowUturnLeftIcon className="size-4" />
+                            )}
+                            {t('settings.resetAll')}
+                        </button>
+
+                        {confirmReset && (
+                            <FloatingPanel
+                                anchor={resetButtonRef.current}
+                                onClose={() => setConfirmReset(false)}
+                                placement="top"
+                                className="w-64 rounded-xl border border-base-300/60 bg-base-100 p-3 shadow-xl"
+                            >
+                                <div className="text-sm">
+                                    {t('settings.resetConfirm')}
+                                </div>
+                                <div className="mt-2 flex justify-end gap-2">
+                                    <button
+                                        className="btn btn-ghost btn-xs"
+                                        onClick={() => setConfirmReset(false)}
+                                    >
+                                        {t('common.cancel')}
+                                    </button>
+                                    <button
+                                        className="btn btn-error btn-xs"
+                                        onClick={() => {
+                                            setConfirmReset(false);
+                                            onResetAll();
+                                        }}
+                                    >
+                                        {t('settings.reset')}
+                                    </button>
+                                </div>
+                            </FloatingPanel>
+                        )}
+                    </div>
+                </div>
             </div>
 
-            <div className="card">
-                <div className="field-label">Privacy</div>
-                <p className="about-text hint">
-                    DNSS runs completely offline. No telemetry, no analytics, no
-                    network requests other than the DNS benchmarks you trigger
-                    yourself.
-                </p>
+            <div className="card border border-base-300/40 bg-base-100 shadow-sm">
+                <div className="card-body gap-2 p-4">
+                    <div className="text-xs font-semibold opacity-70">
+                        {t('settings.about')}
+                    </div>
+                    <p className="m-0 text-sm leading-relaxed">
+                        <strong>DNSS</strong>
+                        {t('settings.aboutSuffix')}
+                    </p>
+                    <p className="m-0 text-xs leading-relaxed opacity-60">
+                        {t('settings.inspirationBefore')}
+                        <a
+                            className="link link-primary"
+                            href={INSPIRATION_URL}
+                            onClick={(e) => {
+                                e.preventDefault();
+                                void openExternal(INSPIRATION_URL);
+                            }}
+                        >
+                            DnsChanger/dnsChanger-desktop
+                        </a>
+                        {t('settings.inspirationAfter')}
+                    </p>
+                </div>
+            </div>
+
+            <div className="card border border-base-300/40 bg-base-100 shadow-sm">
+                <div className="card-body gap-2 p-4">
+                    <div className="text-xs font-semibold opacity-70">
+                        {t('settings.privacy')}
+                    </div>
+                    <p className="m-0 text-xs leading-relaxed opacity-60">
+                        {t('settings.privacyBody')}
+                    </p>
+                </div>
             </div>
         </div>
     );

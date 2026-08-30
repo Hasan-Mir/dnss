@@ -2,7 +2,7 @@
     "name": "dnss",
     "version": "1.0.0",
     "private": true,
-    "description": "DNSS (DNS Switch) - Change your DNS servers with a CLI or a modern desktop app",
+    "description": "DNSS (DNS Switcher) - Change your DNS servers with a CLI or a modern desktop app",
     "keywords": [
         "dns",
         "dns changer",
@@ -15,6 +15,9 @@
         "packages/*"
     ],
     "scripts": {
+        "dev": "npm run tauri dev --workspace @seymi/dnss-gui",
+        "dev:gui": "npm run tauri dev --workspace @seymi/dnss-gui",
+        "dev:cli": "npm run start --workspace @seymi/dnss-cli",
         "build": "npm run build --workspaces --if-present",
         "build:core": "npm run build --workspace @seymi/dnss-core",
         "build:cli": "npm run build --workspace @seymi/dnss-cli",
@@ -33,6 +36,7 @@
         "esbuild@0.21.5": true
     },
     "devDependencies": {
+        "fallow": "^3.20.0",
         "prettier": "^3.9.6"
     }
 }

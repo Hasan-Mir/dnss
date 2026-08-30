@@ -1,6 +1,6 @@
 use std::process::Command;
 
-use super::Adapter;
+use super::{Adapter, DnsStatus};
 
 /// Run an external command with an argument vector (no shell involved,
 /// so no metacharacter injection is possible) and return its stdout.
@@ -18,6 +18,7 @@ fn run(cmd: &str, args: &[&str]) -> Result<String, String> {
 }
 
 /// Run a command without failing on non-zero exit (output still returned).
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn run_lenient(cmd: &str, args: &[&str]) -> String {
     Command::new(cmd)
         .args(args)
@@ -28,6 +29,7 @@ fn run_lenient(cmd: &str, args: &[&str]) -> String {
 
 /// Quote a value for safe inclusion inside a `sh -c`-style shell string.
 /// Wraps in single quotes and escapes embedded single quotes POSIX-style.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
@@ -39,6 +41,7 @@ fn shell_quote(value: &str) -> String {
 ///          shell string is built exclusively from shell-quoted tokens.
 /// Linux:   `pkexec` executes the binary directly with an argument vector
 ///          (no shell involved).
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn run_privileged(cmd: &str, args: &[&str]) -> Result<(), String> {
     if cfg!(target_os = "windows") {
         // The app is already elevated; run directly.
@@ -68,31 +71,123 @@ fn run_privileged(cmd: &str, args: &[&str]) -> Result<(), String> {
     }
 }
 
+// ===== POSIX helpers shared by the Linux/macOS implementations =====
+
+/// Wrap one per-adapter change result for the bulk API.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn set_dns_outcome(adapter: &str, servers: &[String]) -> super::SetDnsOutcome {
+    match set_dns(adapter, servers) {
+        Ok(()) => super::SetDnsOutcome {
+            adapter: adapter.to_string(),
+            ok: true,
+            error: String::new(),
+        },
+        Err(error) => super::SetDnsOutcome {
+            adapter: adapter.to_string(),
+            ok: false,
+            error,
+        },
+    }
+}
+
 // ===== Windows =====
 
+/// Run a PowerShell snippet and return its stdout. Callers embed dynamic
+/// tokens as single-quoted PowerShell strings only (`''` escapes a quote);
+/// user data never becomes PowerShell syntax.
 #[cfg(target_os = "windows")]
-pub fn list_adapters() -> Result<Vec<Adapter>, String> {
-    let output = run(
-        "powershell",
-        &[
-            "-NoProfile",
-            "-Command",
-            "Get-NetAdapter | Sort-Object Status -Descending | \
-             Select-Object Name, InterfaceDescription | ConvertTo-Json -Compress",
-        ],
-    )?;
-    let value: serde_json::Value =
-        serde_json::from_str(output.trim()).map_err(|e| format!("JSON parse error: {}", e))?;
+fn run_ps(script: &str) -> Result<String, String> {
+    run("powershell", &["-NoProfile", "-Command", script])
+}
 
-    // ConvertTo-Json emits an object (not an array) for a single result.
-    let items = match value {
-        serde_json::Value::Array(items) => items,
-        item @ serde_json::Value::Object(_) => vec![item],
+/// Quote a value for embedding inside a PowerShell single-quoted string.
+#[cfg(target_os = "windows")]
+fn ps_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+
+/// One PowerShell spawn that answers everything a status refresh needs: the
+/// adapter list (with each adapter's effective DNS servers), the default-route
+/// adapter and its DNS servers. PowerShell startup costs ~0.5-1.5s per spawn,
+/// so batching the process calls this replaces (adapter list, default-route
+/// detection, DNS-in-use query, registry static query) is what makes the
+/// refresh feel instant.
+#[cfg(target_os = "windows")]
+const STATUS_SCRIPT: &str = "\
+$ErrorActionPreference = 'Stop'
+try {
+    $adapters = @(Get-NetAdapter | Sort-Object Status -Descending | \
+        Select-Object Name, InterfaceDescription, InterfaceGuid)
+} catch {
+    [Console]::Error.WriteLine($_.Exception.Message)
+    exit 1
+}
+$def = Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | \
+    Sort-Object { $_.InterfaceMetric + $_.RouteMetric } | \
+    Select-Object -First 1 -ExpandProperty InterfaceAlias
+$inUseByAdapter = @{}
+Get-DnsClientServerAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | ForEach-Object {
+    $inUseByAdapter[$_.InterfaceAlias] = @($_.ServerAddresses)
+}
+$details = @($adapters | ForEach-Object {
+    $props = Get-ItemProperty -Path \
+        ('HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces\\' + $_.InterfaceGuid) \
+        -ErrorAction SilentlyContinue
+    $regStatic = @(@($props.NameServer, $props.ProfileNameServer) -join ',' -split ',') | \
+        ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }
+    [PSCustomObject]@{
+        Name = $_.Name
+        InterfaceDescription = $_.InterfaceDescription
+        Servers = @($inUseByAdapter[$_.Name])
+        Static = @($regStatic)
+    }
+})
+$static = @()
+$inUse = @()
+if ($def) {
+    $defDetail = $details | Where-Object { $_.Name -eq $def } | Select-Object -First 1
+    if ($defDetail) {
+        $static = @($defDetail.Static)
+        $inUse = @($defDetail.Servers)
+    }
+}
+$status = [PSCustomObject]@{ default = $def; adapters = $details; static = @($static); inUse = @($inUse) }
+ConvertTo-Json -Compress -InputObject $status -Depth 4";
+
+/// Flatten a JSON value (array of strings, single string, or null) into a
+/// trimmed, de-emptyied server list.
+#[cfg(target_os = "windows")]
+fn json_to_servers(value: Option<&serde_json::Value>) -> Vec<String> {
+    match value {
+        Some(serde_json::Value::Array(items)) => items
+            .iter()
+            .filter_map(|v| v.as_str().map(|s| s.trim().to_string()))
+            .filter(|s| !s.is_empty())
+            .collect(),
+        Some(serde_json::Value::String(s)) if !s.trim().is_empty() => {
+            vec![s.trim().to_string()]
+        }
         _ => vec![],
-    };
+    }
+}
 
-    let default_name = detect_default_adapter()?;
-    let adapters = items
+#[cfg(target_os = "windows")]
+pub fn network_status() -> Result<super::NetworkStatus, String> {
+    let output = run_ps(STATUS_SCRIPT)?;
+    let value: serde_json::Value = serde_json::from_str(output.trim())
+        .map_err(|e| format!("JSON parse error: {}", e))?;
+
+    let default_adapter = value
+        .get("default")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    let empty = Vec::new();
+    let adapter_items = value
+        .get("adapters")
+        .and_then(|v| v.as_array())
+        .unwrap_or(&empty);
+    let adapters = adapter_items
         .iter()
         .filter_map(|item| {
             let name = item.get("Name")?.as_str()?.to_string();
@@ -101,150 +196,140 @@ pub fn list_adapters() -> Result<Vec<Adapter>, String> {
                 .and_then(|v| v.as_str())
                 .unwrap_or("Unknown")
                 .to_string();
+            let dns_servers = json_to_servers(item.get("Servers"));
+            // Registry NameServer present = the servers were pinned on the
+            // interface (by us or another tool); otherwise they are
+            // DHCP-provided.
+            let dns_static = !json_to_servers(item.get("Static")).is_empty();
             Some(Adapter {
-                is_default: default_name.as_deref() == Some(name.as_str()),
+                is_default: default_adapter.as_deref() == Some(name.as_str()),
                 name,
                 kind,
+                dns_servers,
+                dns_static,
             })
         })
         .collect();
-    Ok(adapters)
-}
 
-/// Read the DNS status of a Windows adapter.
-///
-/// Uses two locale-independent sources:
-///  - `Get-DnsClientServerAddress` -> servers currently in use
-///  - registry `NameServer`/`ProfileNameServer` -> statically configured
-///    servers (empty registry values mean the adapter uses DHCP-provided
-///    DNS). Windows 10/11 may write static DNS to `ProfileNameServer`
-///    instead of `NameServer`, so both values are merged.
-#[cfg(target_os = "windows")]
-fn get_dns_status_windows(adapter: &str) -> Result<super::DnsStatus, String> {
-    let script = format!(
-        // No AddressFamily filter: an IPv6 static resolver must be visible
-        // too, otherwise the status could report "DHCP" while a custom
-        // resolver (set by another tool) is actually in use.
-        "$dns = Get-DnsClientServerAddress -InterfaceAlias '{}' | \
-         Select-Object -ExpandProperty ServerAddresses; \
-         $guid = (Get-NetAdapter -InterfaceAlias '{}').InterfaceGuid; \
-         $props = Get-ItemProperty -Path \"HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces\\$guid\" \
-         -ErrorAction SilentlyContinue; \
-         $ns = @($props.NameServer, $props.ProfileNameServer) -join ',' -split ','; \
-         [PSCustomObject]@{{ inUse = @($dns); static = @($ns) }} | ConvertTo-Json -Compress",
-        adapter.replace('\'', "''"),
-        adapter.replace('\'', "''")
-    );
-
-    let output = run("powershell", &["-NoProfile", "-Command", &script])?;
-    let value: serde_json::Value =
-        serde_json::from_str(output.trim()).map_err(|e| format!("JSON parse error: {}", e))?;
-
-    let to_vec = |key: &str| -> Vec<String> {
-        match value.get(key) {
-            Some(serde_json::Value::Array(items)) => items
-                .iter()
-                .filter_map(|v| v.as_str().map(|s| s.trim().to_string()))
-                .filter(|s| !s.is_empty())
-                .collect(),
-            Some(serde_json::Value::String(s)) if !s.trim().is_empty() => {
-                vec![s.trim().to_string()]
-            }
-            _ => vec![],
-        }
+    // With no default route there is no adapter whose DNS could be shown.
+    let active_dns = if default_adapter.is_some() {
+        Some(DnsStatus {
+            static_servers: json_to_servers(value.get("static")),
+            in_use: json_to_servers(value.get("inUse")),
+        })
+    } else {
+        None
     };
 
-    Ok(super::DnsStatus {
-        static_servers: to_vec("static"),
-        in_use: to_vec("inUse"),
+    Ok(super::NetworkStatus {
+        adapters,
+        default_adapter,
+        active_dns,
     })
 }
 
+/// Apply one server list to several adapters in a single PowerShell spawn.
+/// `None` targets every adapter the OS knows. Each adapter is validated and
+/// applied inside the script with per-adapter error capture, so one dead
+/// adapter cannot hide the others' results — and N adapters cost one
+/// process instead of 3N (the old per-adapter path spawned separate
+/// PowerShell processes for validation and for the change itself, which is
+/// what made applying DNS feel glacial).
 #[cfg(target_os = "windows")]
-pub fn get_active_dns(adapter: Option<&str>) -> Result<super::DnsStatus, String> {
-    let adapter = match adapter {
-        Some(name) => name.to_string(),
-        None => detect_default_adapter()?
-            .ok_or_else(|| "No active network adapter found".to_string())?,
-    };
-    get_dns_status_windows(&adapter)
+const SET_MANY_SCRIPT: &str = "\
+$ErrorActionPreference = 'Stop'
+try {
+    $known = @{}
+    Get-NetAdapter | ForEach-Object { $known[$_.Name] = $true }
+} catch {
+    [Console]::Error.WriteLine($_.Exception.Message)
+    exit 1
 }
+$results = @()
+foreach ($n in __NAMES__) {
+    if (-not $known.ContainsKey($n)) {
+        $results += [PSCustomObject]@{ adapter = $n; ok = $false; error = ('Unknown network adapter: ' + $n) }
+        continue
+    }
+    try {
+        __CMD__
+        $results += [PSCustomObject]@{ adapter = $n; ok = $true; error = '' }
+    } catch {
+        $results += [PSCustomObject]@{ adapter = $n; ok = $false; error = $_.Exception.Message }
+    }
+}
+ConvertTo-Json -Compress -InputObject @($results)";
 
 #[cfg(target_os = "windows")]
-pub fn set_dns(adapter: &str, servers: &[String]) -> Result<(), String> {
+pub fn set_dns_many(
+    names: Option<&[String]>,
+    servers: &[String],
+) -> Result<Vec<super::SetDnsOutcome>, String> {
+    let names_expr = match names {
+        Some(names) => {
+            let quoted: Vec<String> = names.iter().map(|n| ps_quote(n)).collect();
+            format!("@({})", quoted.join(","))
+        }
+        // The adapter list comes from the OS itself; nothing to quote.
+        None => "@(Get-NetAdapter | Select-Object -ExpandProperty Name)".to_string(),
+    };
     // Set-DnsClientServerAddress replaces the *entire* address list in a
     // single call. The previous netsh `set dns` + `add dns index=N` pattern
-    // left stale entries at index >= 3 behind when the adapter already had
-    // more servers configured than the new list contains, silently keeping
-    // old resolvers active. It also covers both address families, so an
-    // IPv6 static resolver set by another tool no longer survives a reset.
-    // The adapter name is embedded into a PowerShell single-quoted string
-    // ('' escapes a quote); the adapter was already validated against
-    // list_adapters at the IPC boundary.
-    let alias = adapter.replace('\'', "''");
-    let script = if servers.is_empty() {
-        format!(
-            "Set-DnsClientServerAddress -InterfaceAlias '{}' -ResetServerAddresses",
-            alias
-        )
+    // left stale entries at index >= 3 behind and did not cover IPv6; this
+    // cmdlet covers both address families, so an IPv6 static resolver set
+    // by another tool no longer survives a reset.
+    let cmd = if servers.is_empty() {
+        "Set-DnsClientServerAddress -InterfaceAlias $n -ResetServerAddresses -ErrorAction Stop"
+            .to_string()
     } else {
-        let list: Vec<String> = servers
-            .iter()
-            .map(|server| format!("'{}'", server.replace('\'', "''")))
-            .collect();
+        let quoted: Vec<String> = servers.iter().map(|s| ps_quote(s)).collect();
         format!(
-            "Set-DnsClientServerAddress -InterfaceAlias '{}' -ServerAddresses @({})",
-            alias,
-            list.join(",")
+            "Set-DnsClientServerAddress -InterfaceAlias $n -ServerAddresses @({}) -ErrorAction Stop",
+            quoted.join(",")
         )
     };
-    run("powershell", &["-NoProfile", "-Command", &script]).map(|_| ())
+    let script = SET_MANY_SCRIPT
+        .replace("__NAMES__", &names_expr)
+        .replace("__CMD__", &cmd);
+
+    let output = run_ps(&script)?;
+    let trimmed = output.trim();
+    if trimmed.is_empty() {
+        // No adapters at all: nothing was changed.
+        return Ok(vec![]);
+    }
+    let value: serde_json::Value = serde_json::from_str(trimmed)
+        .map_err(|e| format!("JSON parse error: {}", e))?;
+    let items = match value {
+        serde_json::Value::Array(items) => items,
+        item @ serde_json::Value::Object(_) => vec![item],
+        _ => vec![],
+    };
+    let outcomes = items
+        .iter()
+        .filter_map(|item| {
+            Some(super::SetDnsOutcome {
+                adapter: item.get("adapter")?.as_str()?.to_string(),
+                ok: item.get("ok")?.as_bool()?,
+                error: item
+                    .get("error")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string(),
+            })
+        })
+        .collect();
+    Ok(outcomes)
 }
 
 #[cfg(target_os = "windows")]
-pub fn reset_all_dns() -> Result<(), String> {
-    let adapters = list_adapters()?;
-    // Collect errors per adapter: one disconnected virtual adapter must not
-    // abort the reset of every other adapter.
-    let mut errors: Vec<String> = Vec::new();
-    for adapter in &adapters {
-        if let Err(error) = set_dns(&adapter.name, &[]) {
-            errors.push(format!("{}: {}", adapter.name, error));
-        }
-    }
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        Err(errors.join("\n"))
-    }
+pub fn reset_all_dns() -> Result<Vec<super::SetDnsOutcome>, String> {
+    set_dns_many(None, &[])
 }
 
 #[cfg(target_os = "windows")]
 pub fn flush_dns() -> Result<(), String> {
     run("ipconfig", &["/flushdns"]).map(|_| ())
-}
-
-#[cfg(target_os = "windows")]
-pub fn detect_default_adapter() -> Result<Option<String>, String> {
-    // Lenient on purpose: when the host is offline (airplane mode, no
-    // gateway), Get-NetRoute exits non-zero and a hard error here would make
-    // list_adapters() fail entirely — the GUI would show a permanent error
-    // instead of the adapter list. No default route just means "no default".
-    let output = run_lenient(
-        "powershell",
-        &[
-            "-NoProfile",
-            "-Command",
-            // -ErrorAction SilentlyContinue suppresses the terminating error
-            // when no 0.0.0.0/0 route exists; the pipeline then yields empty
-            // output, which maps to None below.
-            "(Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue | \
-             Sort-Object { $_.InterfaceMetric + $_.RouteMetric } | \
-             Select-Object -First 1 -ExpandProperty InterfaceAlias)",
-        ],
-    );
-    let name = output.trim().to_string();
-    Ok(if name.is_empty() { None } else { Some(name) })
 }
 
 // ===== Linux =====
@@ -272,6 +357,9 @@ pub fn list_adapters() -> Result<Vec<Adapter>, String> {
                 } else {
                     format!("{} (disconnected)", kind)
                 },
+                // Filled in per device by network_status from one nmcli query.
+                dns_servers: Vec::new(),
+                dns_static: false,
             })
         })
         .collect();
@@ -308,6 +396,7 @@ fn get_connection_name(device: &str) -> Result<String, String> {
 /// "\:" and a literal backslash as "\\", so a connection named "Home:Wifi"
 /// must be unescaped before the name is handed back to nmcli (the CLI
 /// unescapes too; without it `nmcli con mod "Home\:Wifi"` fails).
+#[cfg(target_os = "linux")]
 fn unescape_nmcli(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     let mut chars = value.chars();
@@ -430,27 +519,82 @@ pub fn set_dns(adapter: &str, servers: &[String]) -> Result<(), String> {
 }
 
 #[cfg(target_os = "linux")]
-pub fn reset_all_dns() -> Result<(), String> {
+pub fn network_status() -> Result<super::NetworkStatus, String> {
+    let mut adapters = list_adapters()?;
+    // One terse `nmcli dev show` for every device: GENERAL.DEVICE lines name
+    // the device, the IP4.DNS[n] lines that follow list its resolvers. A
+    // device that fails to report simply stays with an empty server list.
+    let show = run_lenient("nmcli", &["-t", "dev", "show"]);
+    let mut servers_by_device: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    let mut current_device: Option<String> = None;
+    for line in show.lines() {
+        if let Some(name) = line.strip_prefix("GENERAL.DEVICE:") {
+            current_device = Some(name.trim().to_string());
+        } else if line.starts_with("IP4.DNS[") {
+            if let (Some(device), Some((_, server))) =
+                (current_device.as_ref(), line.split_once(':'))
+            {
+                let server = server.trim();
+                if !server.is_empty() {
+                    servers_by_device
+                        .entry(device.clone())
+                        .or_default()
+                        .push(server.to_string());
+                }
+            }
+        }
+    }
+    for adapter in &mut adapters {
+        if let Some(servers) = servers_by_device.get(&adapter.name) {
+            adapter.dns_servers = servers.clone();
+        }
+    }
+
+    let default_adapter = adapters
+        .iter()
+        .find(|a| a.is_default)
+        .map(|a| a.name.clone());
+    let active_dns = match &default_adapter {
+        Some(name) => Some(get_active_dns(Some(name))?),
+        None => None,
+    };
+    Ok(super::NetworkStatus {
+        adapters,
+        default_adapter,
+        active_dns,
+    })
+}
+
+#[cfg(target_os = "linux")]
+pub fn set_dns_many(
+    names: Option<&[String]>,
+    servers: &[String],
+) -> Result<Vec<super::SetDnsOutcome>, String> {
+    let resolved: Vec<String> = match names {
+        Some(names) => names.to_vec(),
+        None => list_adapters()?.into_iter().map(|a| a.name).collect(),
+    };
+    Ok(resolved
+        .iter()
+        .map(|name| set_dns_outcome(name, servers))
+        .collect())
+}
+
+#[cfg(target_os = "linux")]
+pub fn reset_all_dns() -> Result<Vec<super::SetDnsOutcome>, String> {
     let adapters = list_adapters()?;
-    let mut errors: Vec<String> = Vec::new();
+    let mut outcomes: Vec<super::SetDnsOutcome> = Vec::new();
     for adapter in &adapters {
         // Devices without an active NetworkManager connection (disconnected
         // NICs, unmanaged devices) have nothing to reset and must not fail
         // the whole bulk reset; skip them and only report real failures.
-        match get_connection_name(&adapter.name) {
-            Ok(_) => {
-                if let Err(error) = set_dns(&adapter.name, &[]) {
-                    errors.push(format!("{}: {}", adapter.name, error));
-                }
-            }
-            Err(_) => continue,
+        if get_connection_name(&adapter.name).is_err() {
+            continue;
         }
+        outcomes.push(set_dns_outcome(&adapter.name, &[]));
     }
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        Err(errors.join("\n"))
-    }
+    Ok(outcomes)
 }
 
 #[cfg(target_os = "linux")]
@@ -527,6 +671,11 @@ pub fn list_adapters() -> Result<Vec<Adapter>, String> {
             is_default: default_name.as_deref() == Some(name.as_str()),
             name,
             kind: "Service".to_string(),
+            // Per-service resolvers would need one `networksetup
+            // -getdnsservers` spawn per service; the active adapter's
+            // servers are still shown via active_dns.
+            dns_servers: Vec::new(),
+            dns_static: false,
         })
         .collect();
     Ok(adapters)
@@ -590,10 +739,43 @@ pub fn set_dns(adapter: &str, servers: &[String]) -> Result<(), String> {
 }
 
 #[cfg(target_os = "macos")]
-pub fn reset_all_dns() -> Result<(), String> {
+pub fn network_status() -> Result<super::NetworkStatus, String> {
+    let adapters = list_adapters()?;
+    let default_adapter = adapters
+        .iter()
+        .find(|a| a.is_default)
+        .map(|a| a.name.clone());
+    let active_dns = match &default_adapter {
+        Some(name) => Some(get_active_dns(Some(name))?),
+        None => None,
+    };
+    Ok(super::NetworkStatus {
+        adapters,
+        default_adapter,
+        active_dns,
+    })
+}
+
+#[cfg(target_os = "macos")]
+pub fn set_dns_many(
+    names: Option<&[String]>,
+    servers: &[String],
+) -> Result<Vec<super::SetDnsOutcome>, String> {
+    let resolved: Vec<String> = match names {
+        Some(names) => names.to_vec(),
+        None => list_adapters()?.into_iter().map(|a| a.name).collect(),
+    };
+    Ok(resolved
+        .iter()
+        .map(|name| set_dns_outcome(name, servers))
+        .collect())
+}
+
+#[cfg(target_os = "macos")]
+pub fn reset_all_dns() -> Result<Vec<super::SetDnsOutcome>, String> {
     let adapters = list_adapters()?;
     if adapters.is_empty() {
-        return Ok(());
+        return Ok(vec![]);
     }
     // One privileged shell (and therefore one authorization prompt) instead
     // of one per adapter. Every service name is shell-quoted here, and
@@ -609,7 +791,16 @@ pub fn reset_all_dns() -> Result<(), String> {
         })
         .collect::<Vec<_>>()
         .join("; ");
-    run_privileged("sh", &["-c", &script])
+    run_privileged("sh", &["-c", &script]).map(|_| {
+        adapters
+            .iter()
+            .map(|a| super::SetDnsOutcome {
+                adapter: a.name.clone(),
+                ok: true,
+                error: String::new(),
+            })
+            .collect()
+    })
 }
 
 #[cfg(target_os = "macos")]
