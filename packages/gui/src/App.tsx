@@ -26,6 +26,7 @@ import {
     type ThemeMode,
 } from './theme';
 import { applyLang, createI18n, loadLang, saveLang, type Lang } from './i18n';
+import appIcon from './assets/app-icon.png';
 import HomePage from './pages/Home';
 import ServersPage from './pages/Servers';
 import SettingsPage from './pages/Settings';
@@ -469,9 +470,12 @@ export default function App() {
         <div className="flex h-full flex-col">
             <header className="flex select-none items-center justify-between border-b border-base-300/60 bg-base-100 px-4 py-2.5">
                 <div className="flex items-center gap-2.5">
-                    <div className="grid size-8 place-items-center rounded-lg bg-primary font-bold text-primary-content">
-                        D
-                    </div>
+                    <img
+                        src={appIcon}
+                        alt="DNSS"
+                        className="size-8 select-none"
+                        draggable={false}
+                    />
                     <span className="text-lg font-bold tracking-wide">
                         DNSS
                     </span>

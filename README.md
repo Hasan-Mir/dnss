@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="docs/icon.png" width="140" alt="DNSS — DNS Switcher logo" />
+</div>
+
 # DNSS — DNS Switcher
 
 **DNSS** (short for _DNS Switch_) is a free, open-source **DNS changer** for Windows, macOS and Linux. Switch between popular DNS providers (Cloudflare, Google, AdGuard, Shecan, …) with a modern desktop app or a simple CLI — no manual `netsh` commands, no diggings through settings.
