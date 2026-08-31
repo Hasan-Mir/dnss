@@ -10,6 +10,7 @@ import {
 } from '@heroicons/react/24/outline';
 import type { Adapter, DnsStatus } from '../api';
 import type { I18n } from '../i18n';
+import { getResolvedTheme, ThemeMode } from '../theme';
 
 interface HomePageProps {
     /** Translations + text direction + localized digits. */
@@ -37,6 +38,7 @@ interface HomePageProps {
     refreshStatus: () => void;
     /** Address -> display name (saved configs + presets). */
     dnsNameLookup: Map<string, string>;
+    themeMode: ThemeMode;
 }
 
 /** One row of the "DNS servers in use" panel: adapter identity at the start,
@@ -62,9 +64,14 @@ function AdapterRow({
                             title={i18n.t('home.activeAdapterTitle')}
                         />
                     )}
-                    <span className="truncate text-sm font-medium">
+
+                    <span
+                        title={adapter.name}
+                        className="truncate text-sm font-medium"
+                    >
                         {adapter.name}
                     </span>
+
                     {adapter.dns_static && (
                         <span
                             className="badge badge-ghost badge-xs shrink-0 font-semibold text-primary"
@@ -74,8 +81,12 @@ function AdapterRow({
                         </span>
                     )}
                 </div>
+
                 {adapter.kind && (
-                    <div className="truncate text-[11px] opacity-50">
+                    <div
+                        title={adapter.kind}
+                        className="truncate text-[11px] opacity-50"
+                    >
                         {adapter.kind}
                     </div>
                 )}
@@ -123,6 +134,7 @@ export default function HomePage({
     onFlushDns,
     refreshStatus,
     dnsNameLookup,
+    themeMode,
 }: HomePageProps) {
     const { t, dir, num } = i18n;
     const statusLabel = isCustomDnsActive
@@ -182,7 +194,9 @@ export default function HomePage({
                             circleState === 'on'
                                 ? 'bg-success text-success-content ring-glow-success'
                                 : circleState === 'restore'
-                                  ? 'bg-primary text-primary-content ring-glow-base'
+                                  ? getResolvedTheme(themeMode) === 'dark'
+                                      ? 'text-white bg-gray-500 ring-gray-500'
+                                      : 'text-white bg-gray-300 ring-gray-300'
                                   : 'bg-base-300 text-base-content/70 ring-glow-base'
                         } ${
                             busy

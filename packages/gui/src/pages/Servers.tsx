@@ -30,6 +30,9 @@ interface ServersPageProps {
     activeAdapterName: string | null;
     configs: DnsConfig[];
     persistConfigs: (next: DnsConfig[]) => Promise<boolean>;
+    /** Ids of built-in presets the user removed from this list. */
+    hiddenPresets: string[];
+    onHidePreset: (id: string) => void;
     /** True while ANY blocking operation runs — disables the controls. */
     busy: boolean;
     /** Key of the config whose Apply is running: that button spins, the
@@ -326,6 +329,8 @@ export default function ServersPage({
     activeAdapterName,
     configs,
     persistConfigs,
+    hiddenPresets,
+    onHidePreset,
     busy,
     applyBusyId,
     onApply,
@@ -402,13 +407,15 @@ export default function ServersPage({
 
     const presetEntries: Entry[] = useMemo(
         () =>
-            DNS_PRESETS.map((p) => ({
-                key: p.id,
-                preset: p,
-                custom: false,
-                customIndex: -1,
-            })),
-        []
+            DNS_PRESETS.filter((p) => !hiddenPresets.includes(p.id)).map(
+                (p) => ({
+                    key: p.id,
+                    preset: p,
+                    custom: false,
+                    customIndex: -1,
+                })
+            ),
+        [hiddenPresets]
     );
 
     const allEntries = useMemo(
@@ -835,7 +842,77 @@ export default function ServersPage({
                                     </FloatingPanel>
                                 )}
                             </>
-                        ) : null
+                        ) : (
+                            // Built-in preset: removable from the list
+                            // (restorable in Settings), never editable.
+                            <>
+                                <button
+                                    ref={setTrigger(`del:${entry.key}`)}
+                                    className="btn btn-circle btn-ghost btn-sm text-error hover:bg-error hover:text-error-content"
+                                    title={t('common.remove')}
+                                    aria-label={t('common.remove')}
+                                    disabled={busy}
+                                    onClick={() => {
+                                        setApplyMenuKey(null);
+                                        setConfirmKey(entry.key);
+                                    }}
+                                >
+                                    <TrashIcon className="size-4" />
+                                </button>
+                                {confirmKey === entry.key && (
+                                    <FloatingPanel
+                                        anchor={
+                                            triggerEls.current.get(
+                                                `del:${entry.key}`
+                                            ) ?? null
+                                        }
+                                        onClose={() => setConfirmKey(null)}
+                                        placement="top"
+                                        className="w-60 rounded-xl border border-base-300/60 bg-base-100 p-3 shadow-xl"
+                                    >
+                                        <div className="text-sm">
+                                            {t('servers.removePresetConfirm', {
+                                                name: entry.preset.name,
+                                            })}
+                                        </div>
+                                        <div className="mt-1 text-xs opacity-60">
+                                            {t('servers.removePresetHint')}
+                                        </div>
+                                        <div className="mt-2 flex justify-end gap-2">
+                                            <button
+                                                className="btn btn-ghost btn-xs"
+                                                onClick={() =>
+                                                    setConfirmKey(null)
+                                                }
+                                            >
+                                                {t('common.cancel')}
+                                            </button>
+                                            <button
+                                                className="btn btn-error btn-xs"
+                                                onClick={() => {
+                                                    onHidePreset(
+                                                        entry.preset.id
+                                                    );
+                                                    setConfirmKey(null);
+                                                    showToast(
+                                                        t(
+                                                            'toast.presetRemoved',
+                                                            {
+                                                                name: entry
+                                                                    .preset
+                                                                    .name,
+                                                            }
+                                                        )
+                                                    );
+                                                }}
+                                            >
+                                                {t('common.remove')}
+                                            </button>
+                                        </div>
+                                    </FloatingPanel>
+                                )}
+                            </>
+                        )
                     }
                 />
                 {isEditingThis && (

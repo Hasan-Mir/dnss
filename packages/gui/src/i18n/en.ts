@@ -26,6 +26,7 @@ const en = {
     'common.cancel': 'Cancel',
     'common.apply': 'Apply',
     'common.delete': 'Delete',
+    'common.remove': 'Remove',
     'common.save': 'Save',
     'common.update': 'Update',
     'common.edit': 'Edit',
@@ -55,6 +56,7 @@ const en = {
     'toast.duplicate': 'A server named "{name}" already exists',
     'toast.updated': 'Updated "{name}"',
     'toast.added': 'Added "{name}"',
+    'toast.presetRemoved': 'Removed "{name}" from the presets',
 
     // Home
     'home.customActive': 'Custom DNS active',
@@ -100,6 +102,8 @@ const en = {
     'servers.applyTo': 'Apply to adapters',
     'servers.allAdapters': 'All adapters',
     'servers.deleteConfirm': 'Delete “{name}”?',
+    'servers.removePresetConfirm': 'Remove “{name}” from the presets?',
+    'servers.removePresetHint': 'You can restore it later in Settings.',
     'form.new': 'New server',
     'form.edit': 'Edit “{name}”',
     'form.namePh': 'Name (e.g. My provider)',
@@ -120,6 +124,10 @@ const en = {
     'settings.resetAll': 'Reset all adapters to DHCP',
     'settings.resetConfirm': 'Reset DNS to automatic (DHCP) on ALL adapters?',
     'settings.reset': 'Reset',
+    'settings.hiddenPresets': 'Hidden presets',
+    'settings.hiddenPresetsDesc':
+        'These built-in presets are hidden from the Servers list:',
+    'settings.restorePresets': 'Restore presets',
     'settings.about': 'About',
     'settings.aboutSuffix':
         ' (DNS Switcher) — change your DNS servers in one click. Free and open source, MIT licensed.',

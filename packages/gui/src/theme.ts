@@ -15,12 +15,15 @@ export function saveTheme(mode: ThemeMode): void {
 }
 
 export function applyTheme(mode: ThemeMode): void {
+    document.documentElement.setAttribute('data-theme', getResolvedTheme(mode));
+}
+
+export function getResolvedTheme(mode: ThemeMode): 'light' | 'dark' {
     const prefersDark = window.matchMedia(
         '(prefers-color-scheme: dark)'
     ).matches;
-    const effective =
-        mode === 'system' ? (prefersDark ? 'dark' : 'light') : mode;
-    document.documentElement.setAttribute('data-theme', effective);
+
+    return mode === 'system' ? (prefersDark ? 'dark' : 'light') : mode;
 }
 
 export function watchSystemTheme(onChange: () => void): () => void {

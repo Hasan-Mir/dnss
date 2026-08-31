@@ -28,6 +28,7 @@ const fa: Dict = {
     'common.cancel': 'انصراف',
     'common.apply': 'اعمال',
     'common.delete': 'حذف',
+    'common.remove': 'حذف',
     'common.save': 'ذخیره',
     'common.update': 'به‌روزرسانی',
     'common.edit': 'ویرایش',
@@ -57,6 +58,7 @@ const fa: Dict = {
     'toast.duplicate': 'سروری با نام «{name}» از قبل وجود دارد',
     'toast.updated': '«{name}» به‌روزرسانی شد',
     'toast.added': '«{name}» اضافه شد',
+    'toast.presetRemoved': '«{name}» از سرورهای آماده حذف شد',
 
     // Home
     'home.customActive': 'DNS سفارشی فعال است',
@@ -102,6 +104,8 @@ const fa: Dict = {
     'servers.applyTo': 'اعمال DNS روی آداپتورها',
     'servers.allAdapters': 'همهٔ آداپتورها',
     'servers.deleteConfirm': '«{name}» حذف شود؟',
+    'servers.removePresetConfirm': '«{name}» از سرورهای آماده حذف شود؟',
+    'servers.removePresetHint': 'بعداً می‌توانید از تنظیمات برگردانیدش.',
     'form.new': 'سرور جدید',
     'form.edit': 'ویرایش «{name}»',
     'form.namePh': 'نام (مثلاً DNS منزل)',
@@ -124,6 +128,10 @@ const fa: Dict = {
     'settings.resetConfirm':
         'DNS همهٔ آداپتورها به حالت خودکار (DHCP) برگردانده شود؟',
     'settings.reset': 'بازنشانی',
+    'settings.hiddenPresets': 'سرورهای آمادهٔ حذف‌شده',
+    'settings.hiddenPresetsDesc':
+        'این سرورهای آماده از لیست سرورها حذف شده‌اند:',
+    'settings.restorePresets': 'بازگردانی سرورهای آماده',
     'settings.about': 'درباره',
     'settings.aboutSuffix':
         ' (تغییر DNS) — تغییر DNSها با یک کلیک. رایگان و متن‌باز با مجوز MIT.',

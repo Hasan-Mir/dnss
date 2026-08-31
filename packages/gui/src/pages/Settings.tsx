@@ -6,6 +6,7 @@ import {
     MoonIcon,
     SunIcon,
 } from '@heroicons/react/24/outline';
+import { DNS_PRESETS } from '@seymi/dnss-core/presets';
 import { openExternal } from '../api';
 import FloatingPanel from '../components/FloatingPanel';
 import { LANGUAGES, type I18n, type Lang } from '../i18n';
@@ -22,6 +23,9 @@ interface SettingsPageProps {
     /** True while the reset-all operation itself is running (spinner). */
     resetBusy: boolean;
     onResetAll: () => void;
+    /** Ids of built-in presets the user removed from the Servers list. */
+    hiddenPresets: string[];
+    onRestorePresets: () => void;
 }
 
 const INSPIRATION_URL = 'https://github.com/DnsChanger/dnsChanger-desktop';
@@ -34,6 +38,8 @@ export default function SettingsPage({
     busy,
     resetBusy,
     onResetAll,
+    hiddenPresets,
+    onRestorePresets,
 }: SettingsPageProps) {
     const { t } = i18n;
     // In-app confirmation instead of window.confirm, which renders as a
@@ -164,6 +170,39 @@ export default function SettingsPage({
                     </div>
                 </div>
             </div>
+
+            {hiddenPresets.length > 0 && (
+                <div className="card border border-base-300/40 bg-base-100 shadow-sm">
+                    <div className="card-body gap-2 p-4">
+                        <div className="text-xs font-semibold opacity-70">
+                            {t('settings.hiddenPresets')}
+                        </div>
+                        <p className="m-0 text-xs leading-relaxed opacity-60">
+                            {t('settings.hiddenPresetsDesc')}
+                        </p>
+                        <div className="flex flex-wrap gap-1.5">
+                            {hiddenPresets.map((id) => (
+                                <span
+                                    key={id}
+                                    className="badge badge-ghost badge-sm"
+                                >
+                                    {DNS_PRESETS.find((p) => p.id === id)
+                                        ?.name ?? id}
+                                </span>
+                            ))}
+                        </div>
+                        <div className="flex justify-start">
+                            <button
+                                className="btn btn-sm"
+                                onClick={onRestorePresets}
+                            >
+                                <ArrowUturnLeftIcon className="size-4" />
+                                {t('settings.restorePresets')}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <div className="card border border-base-300/40 bg-base-100 shadow-sm">
                 <div className="card-body gap-2 p-4">

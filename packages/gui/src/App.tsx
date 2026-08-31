@@ -51,6 +51,24 @@ type BusyOp =
     reads as feedback instead of a flicker. */
 const MIN_BUSY_MS = 700;
 
+// Built-in presets the user removed from the Servers list. Purely a display
+// preference of the GUI (the CLI is unaffected), so it lives in localStorage
+// like the theme and language — not in the CLI-shared configs.json.
+const HIDDEN_PRESETS_KEY = 'dnss.hiddenPresets';
+
+function loadHiddenPresets(): string[] {
+    try {
+        const parsed: unknown = JSON.parse(
+            localStorage.getItem(HIDDEN_PRESETS_KEY) ?? '[]'
+        );
+        return Array.isArray(parsed)
+            ? parsed.filter((id): id is string => typeof id === 'string')
+            : [];
+    } catch {
+        return [];
+    }
+}
+
 const withMinDuration = async <T,>(
     promise: Promise<T>,
     minMs: number
@@ -86,6 +104,8 @@ export default function App() {
     const [activeAdapter, setActiveAdapter] = useState<Adapter | null>(null);
     const [activeDns, setActiveDns] = useState<DnsStatus | null>(null);
     const [configs, setConfigs] = useState<DnsConfig[]>([]);
+    const [hiddenPresets, setHiddenPresets] =
+        useState<string[]>(loadHiddenPresets);
     const [loadError, setLoadError] = useState<string | null>(null);
     const [busyOp, setBusyOp] = useState<BusyOp>(null);
     // Status refreshes run outside `busy` (they also happen on app start),
@@ -407,6 +427,18 @@ export default function App() {
         [showToast, t]
     );
 
+    useEffect(() => {
+        localStorage.setItem(HIDDEN_PRESETS_KEY, JSON.stringify(hiddenPresets));
+    }, [hiddenPresets]);
+
+    const hidePreset = useCallback((id: string) => {
+        setHiddenPresets((prev) => (prev.includes(id) ? prev : [...prev, id]));
+    }, []);
+
+    const restorePresets = useCallback(() => {
+        setHiddenPresets([]);
+    }, []);
+
     // Address -> display name lookup (saved configs + built-in presets), so
     // Home can show e.g. "1.1.1.1 — Cloudflare" like the CLI tables do.
     const dnsNameLookup = useMemo(() => {
@@ -519,6 +551,7 @@ export default function App() {
                     <div hidden={page !== 'home'}>
                         <HomePage
                             i18n={i18n}
+                            themeMode={theme}
                             activeAdapter={activeAdapter}
                             activeDns={activeDns}
                             isCustomDnsActive={isCustomDnsActive}
@@ -544,6 +577,8 @@ export default function App() {
                             activeAdapterName={activeAdapter?.name ?? null}
                             configs={configs}
                             persistConfigs={persistConfigs}
+                            hiddenPresets={hiddenPresets}
+                            onHidePreset={hidePreset}
                             busy={busy}
                             applyBusyId={
                                 busyOp?.kind === 'apply' ? busyOp.id : null
@@ -561,6 +596,8 @@ export default function App() {
                             busy={busy}
                             resetBusy={busyOp?.kind === 'reset-all'}
                             onResetAll={handleResetAll}
+                            hiddenPresets={hiddenPresets}
+                            onRestorePresets={restorePresets}
                         />
                     </div>
                 </div>
