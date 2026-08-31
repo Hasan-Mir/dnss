@@ -6,11 +6,14 @@
         dark --prefersdark;
 }
 
-/* Brand overrides on top of the built-in daisyUI themes: indigo accent plus
-   the app's green/red semantics. Everything else keeps the daisyUI palette. */
+/* Brand overrides on top of the built-in daisyUI themes: teal accent (the
+   landing-page green, #34d399) plus the app's green/red semantics. Light
+   mode uses the darker emerald-700 so white button labels keep AA contrast;
+   dark mode pairs the bright teal with near-black labels. Everything else
+   keeps the daisyUI palette. */
 @plugin 'daisyui/theme' {
     name: 'light';
-    --color-primary: #4f46e5;
+    --color-primary: #047857;
     --color-primary-content: #ffffff;
     --color-success: #16a34a;
     --color-success-content: #ffffff;
@@ -20,8 +23,8 @@
 
 @plugin 'daisyui/theme' {
     name: 'dark';
-    --color-primary: #818cf8;
-    --color-primary-content: #1e1b4b;
+    --color-primary: #34d399;
+    --color-primary-content: #04120c;
     --color-success: #4ade80;
     --color-success-content: #052e14;
     --color-error: #f87171;
