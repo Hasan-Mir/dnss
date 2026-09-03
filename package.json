@@ -17,6 +17,8 @@
     "scripts": {
         "dev": "npm run tauri:dev --workspace @seymi/dnss-gui",
         "dev:cli": "npm run dev --workspace @seymi/dnss-cli",
+        "dev:docs": "vite docs",
+        "build:docs": "vite build docs --config docs/vite.config.ts",
         "build": "npm run build:core && npm run build:cli && npm run build:gui",
         "build:core": "npm run build --workspace @seymi/dnss-core",
         "build:cli": "npm run build --workspace @seymi/dnss-cli",
@@ -35,6 +37,7 @@
     },
     "devDependencies": {
         "fallow": "^3.20.0",
-        "prettier": "^3.9.6"
+        "prettier": "^3.9.6",
+        "vite-plugin-singlefile": "^2.3.3"
     }
 }

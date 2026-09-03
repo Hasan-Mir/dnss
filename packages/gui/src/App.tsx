@@ -20,6 +20,7 @@ import {
 } from './api';
 import {
     applyTheme,
+    getResolvedTheme,
     loadTheme,
     saveTheme,
     watchSystemTheme,
@@ -96,10 +97,24 @@ function ThemeIcon({
     );
 }
 
-export default function App() {
+export interface AppProps {
+    theme?: ThemeMode;
+    onThemeChange?: (theme: ThemeMode) => void;
+    lang?: Lang;
+    onLangChange?: (lang: Lang) => void;
+}
+
+export default function App({
+    theme: externalTheme,
+    onThemeChange: onExternalThemeChange,
+    lang: externalLang,
+    onLangChange: onExternalLangChange,
+}: AppProps = {}) {
     const [page, setPage] = useState<Page>('home');
-    const [theme, setTheme] = useState<ThemeMode>(() => loadTheme());
-    const [lang, setLang] = useState<Lang>(loadLang);
+    const [theme, setTheme] = useState<ThemeMode>(
+        () => externalTheme ?? loadTheme()
+    );
+    const [lang, setLang] = useState<Lang>(() => externalLang ?? loadLang());
     const [adapters, setAdapters] = useState<Adapter[]>([]);
     const [activeAdapter, setActiveAdapter] = useState<Adapter | null>(null);
     const [activeDns, setActiveDns] = useState<DnsStatus | null>(null);
@@ -119,11 +134,28 @@ export default function App() {
     // other after a fraction of their display time.
     const toastTimer = useRef<number | null>(null);
 
-    // Language / direction: mirrors onto <html> and persists on change.
+    // Sync language from external prop
+    useEffect(() => {
+        if (externalLang && externalLang !== lang) {
+            setLang(externalLang);
+        }
+    }, [externalLang, lang]);
+
+    // Apply language changes
     useEffect(() => {
         applyLang(lang);
         saveLang(lang);
     }, [lang]);
+
+    const handleLangChange = useCallback(
+        (newLang: Lang) => {
+            setLang(newLang);
+            if (onExternalLangChange) {
+                onExternalLangChange(newLang);
+            }
+        },
+        [onExternalLangChange]
+    );
 
     const i18n = useMemo(() => createI18n(lang), [lang]);
     const { t } = i18n;
@@ -142,13 +174,34 @@ export default function App() {
         []
     );
 
-    // Theme
+    // Sync theme from external prop
+    useEffect(() => {
+        if (externalTheme && externalTheme !== theme) {
+            setTheme(externalTheme);
+        }
+    }, [externalTheme, theme]);
+
+    // Apply theme changes
     useEffect(() => {
         applyTheme(theme);
         saveTheme(theme);
     }, [theme]);
 
-    useEffect(() => watchSystemTheme(() => applyTheme(loadTheme())), []);
+    const handleThemeChange = useCallback(
+        (newTheme: ThemeMode) => {
+            setTheme(newTheme);
+            if (onExternalThemeChange) {
+                onExternalThemeChange(newTheme);
+            }
+        },
+        [onExternalThemeChange]
+    );
+
+    useEffect(() => {
+        return watchSystemTheme(() => {
+            applyTheme(loadTheme());
+        });
+    }, []);
 
     // Saved custom servers live in ~/.dnss/configs.json (shared with the
     // CLI); the app owns the list so Home can annotate addresses with their
@@ -156,12 +209,12 @@ export default function App() {
     useEffect(() => {
         api.getConfigs()
             .then(setConfigs)
-            .catch((error) =>
+            .catch((error) => {
                 showToast(
                     t('toast.loadSavedFailed', { error: String(error) }),
                     'error'
-                )
-            );
+                );
+            });
     }, [showToast, t]);
 
     // Overlapping refreshes (rapid clicks, apply + refresh) must not apply
@@ -282,12 +335,16 @@ export default function App() {
     const dnsMemoryKey = (adapter: string) => `dnss.lastDns.${adapter}`;
 
     const readDnsMemory = useCallback((adapter: string | null): string[] => {
-        if (!adapter) return [];
+        if (!adapter) {
+            return [];
+        }
         try {
             const parsed: unknown = JSON.parse(
                 localStorage.getItem(dnsMemoryKey(adapter)) ?? 'null'
             );
-            if (!Array.isArray(parsed)) return [];
+            if (!Array.isArray(parsed)) {
+                return [];
+            }
             return parsed
                 .filter((s): s is string => typeof s === 'string')
                 .map((s) => s.trim())
@@ -313,13 +370,10 @@ export default function App() {
                 JSON.stringify(activeDns.static_servers)
             );
         }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeAdapter, activeDns]);
 
     const rememberedServers = useMemo(
         () => readDnsMemory(activeAdapter?.name ?? null),
-        // Re-read whenever the status changes so a toggle reflects immediately.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
         [activeAdapter, activeDns, readDnsMemory]
     );
 
@@ -518,15 +572,12 @@ export default function App() {
                 <button
                     className="btn btn-circle btn-ghost btn-sm"
                     title={t('app.toggleTheme')}
-                    onClick={() =>
-                        setTheme((th) =>
-                            th === 'light'
-                                ? 'dark'
-                                : th === 'dark'
-                                  ? 'system'
-                                  : 'light'
-                        )
-                    }
+                    onClick={() => {
+                        const currentResolved = getResolvedTheme(theme);
+                        const next =
+                            currentResolved === 'dark' ? 'light' : 'dark';
+                        handleThemeChange(next);
+                    }}
                 >
                     <ThemeIcon mode={theme} className="size-5" />
                 </button>
@@ -544,10 +595,6 @@ export default function App() {
 
             <main className="grow overflow-y-auto px-4 py-5 pb-24">
                 <div className="flex w-full flex-col gap-4">
-                    {/* Pages stay mounted (hidden instead of unmounted) so
-                        in-flight work like a benchmark run survives tab
-                        switches instead of being dropped with the state.
-                        Each page picks its own comfortable max width. */}
                     <div hidden={page !== 'home'}>
                         <HomePage
                             i18n={i18n}
@@ -590,9 +637,9 @@ export default function App() {
                     <div hidden={page !== 'settings'}>
                         <SettingsPage
                             i18n={i18n}
-                            onLangChange={setLang}
+                            onLangChange={handleLangChange}
                             theme={theme}
-                            onThemeChange={setTheme}
+                            onThemeChange={handleThemeChange}
                             busy={busy}
                             resetBusy={busyOp?.kind === 'reset-all'}
                             onResetAll={handleResetAll}
@@ -603,27 +650,30 @@ export default function App() {
                 </div>
             </main>
 
-            {/* Centered, width-capped dock: on a maximized window the nav
-                stays a compact bar instead of icons drifting apart across
-                the full screen width. */}
             <nav className="dock mx-auto max-w-lg rounded-t-2xl">
                 <button
                     className={page === 'home' ? 'dock-active' : ''}
-                    onClick={() => setPage('home')}
+                    onClick={() => {
+                        setPage('home');
+                    }}
                 >
                     <HomeIcon className="size-5" />
                     <span className="dock-label">{t('dock.home')}</span>
                 </button>
                 <button
                     className={page === 'servers' ? 'dock-active' : ''}
-                    onClick={() => setPage('servers')}
+                    onClick={() => {
+                        setPage('servers');
+                    }}
                 >
                     <ServerStackIcon className="size-5" />
                     <span className="dock-label">{t('dock.servers')}</span>
                 </button>
                 <button
                     className={page === 'settings' ? 'dock-active' : ''}
-                    onClick={() => setPage('settings')}
+                    onClick={() => {
+                        setPage('settings');
+                    }}
                 >
                     <Cog6ToothIcon className="size-5" />
                     <span className="dock-label">{t('dock.settings')}</span>
@@ -631,10 +681,6 @@ export default function App() {
             </nav>
 
             {toastMessage && (
-                /* Plain centered fixed positioning instead of daisyUI's
-                   .toast-center, whose inset-inline + translate combo
-                   double-flips under RTL and throws the toast off to the
-                   wrong side of the window. */
                 <div className="pointer-events-none fixed inset-x-0 bottom-24 z-50 flex justify-center px-4">
                     <div
                         className={`alert pointer-events-auto shadow-lg ${toastIsError ? 'alert-error' : 'alert-success'}`}
