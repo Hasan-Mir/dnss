@@ -18,7 +18,7 @@
         "dev": "npm run tauri:dev --workspace @seymi/dnss-gui",
         "dev:cli": "npm run dev --workspace @seymi/dnss-cli",
         "dev:docs": "vite docs",
-        "build:docs": "vite build docs --config docs/vite.config.ts",
+        "build:docs": "vite build docs",
         "build": "npm run build:core && npm run build:cli && npm run build:gui",
         "build:core": "npm run build --workspace @seymi/dnss-core",
         "build:cli": "npm run build --workspace @seymi/dnss-cli",
