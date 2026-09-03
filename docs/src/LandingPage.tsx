@@ -2,18 +2,18 @@ import React, { useCallback, useEffect, useState } from 'react';
 import App from '@gui/App';
 
 // Asset Imports
-import appIcon from './assets/assets/icon-128.png';
-import iconWindows from './assets/assets/icons/brand-windows.svg';
-import iconApple from './assets/assets/icons/brand-apple.svg';
-import iconLinux from './assets/assets/icons/brand-linux.svg';
-import iconNpm from './assets/assets/icons/brand-npm.svg';
-import iconGithub from './assets/assets/icons/brand-github.svg';
-import iconDownload from './assets/assets/icons/download.svg';
-import iconCopy from './assets/assets/icons/copy.svg';
-import iconCheck from './assets/assets/icons/check.svg';
-import iconBolt from './assets/assets/icons/bolt.svg';
-import iconGauge from './assets/assets/icons/gauge.svg';
-import iconShieldLock from './assets/assets/icons/shield-lock.svg';
+import appIcon from './assets/images/icon-128.png';
+import iconWindows from './assets/icons/brand-windows.svg';
+import iconApple from './assets/icons/brand-apple.svg';
+import iconLinux from './assets/icons/brand-linux.svg';
+import iconNpm from './assets/icons/brand-npm.svg';
+import iconGithub from './assets/icons/brand-github.svg';
+import iconDownload from './assets/icons/download.svg';
+import iconCopy from './assets/icons/copy.svg';
+import iconCheck from './assets/icons/check.svg';
+import iconBolt from './assets/icons/bolt.svg';
+import iconGauge from './assets/icons/gauge.svg';
+import iconShieldLock from './assets/icons/shield-lock.svg';
 
 const PRESETS_LIST = [
     { name: 'Cloudflare', ip: '1.1.1.1' },
@@ -41,9 +41,15 @@ function SvgMaskIcon({
         <span
             className={`inline-block ${className}`}
             style={{
-                mask: `url(${src}) no-repeat center / contain`,
-                WebkitMask: `url(${src}) no-repeat center / contain`,
                 backgroundColor: color,
+                maskImage: `url("${src}")`,
+                maskRepeat: 'no-repeat',
+                maskPosition: 'center',
+                maskSize: 'contain',
+                WebkitMaskImage: `url("${src}")`,
+                WebkitMaskRepeat: 'no-repeat',
+                WebkitMaskPosition: 'center',
+                WebkitMaskSize: 'contain',
             }}
         />
     );
