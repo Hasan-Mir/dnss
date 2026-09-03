@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="docs/icon.png" width="140" alt="DNSS — DNS Switcher logo" />
+  <img src="docs/src/assets/images/icon-128.png" width="140" alt="DNSS — DNS Switcher logo" />
 </div>
 
 # DNSS — DNS Switcher
