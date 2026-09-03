@@ -662,7 +662,8 @@ export default function LandingPage() {
                                 {PRESETS_LIST.map((preset) => (
                                     <div
                                         key={preset.name}
-                                        className={`flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-xs font-mono transition-all ${
+                                        style={{ lineHeight: 1 }}
+                                        className={`flex items-center gap-2 rounded-lg border px-2.5 py-2 text-xs font-mono transition-all ${
                                             preset.active
                                                 ? isLight
                                                     ? 'border-[#a7f3d0] bg-[#ecfdf5] text-[#059669] font-bold'
