@@ -8,6 +8,7 @@
         "dev": "vite",
         "build": "tsc --noEmit && vite build",
         "typecheck": "tsc --noEmit --skipLibCheck",
+        "typecheck:bun": "bun check --skipLibCheck",
         "prettier": "prettier --write .",
         "prettier:check": "prettier --check .",
         "preview": "vite preview",

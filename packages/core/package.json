@@ -40,6 +40,7 @@
     "scripts": {
         "build": "tsc",
         "typecheck": "tsc --noEmit --skipLibCheck",
+        "typecheck:bun": "bun check --skipLibCheck",
         "prettier": "prettier --write .",
         "prettier:check": "prettier --check .",
         "test": "node --test tests/validate.test.mjs"

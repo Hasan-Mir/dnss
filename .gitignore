@@ -23,3 +23,11 @@ Thumbs.db
 
 # Tauri generated files
 packages/gui/src-tauri/gen/
+
+# AI Context Bundling & Agent Trash
+*-context.zip
+prompt.txt
+.context-manifest.tmp
+bun.lock*
+.agent-trash
+

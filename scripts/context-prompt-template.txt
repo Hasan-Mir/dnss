@@ -1,0 +1,108 @@
+================================================================================
+CRITICAL DIRECTIVE: IN-DEPTH CODE REVIEW & BUG FIX REPORT
+================================================================================
+
+Target Project: {{PROJECT_NAME}}
+Archive Generated: {{GENERATION_DATE}}
+Total Files in Context: {{FILE_COUNT}}
+Architecture: {{TECH_STACK}}
+
+--------------------------------------------------------------------------------
+1. MISSION OVERVIEW
+--------------------------------------------------------------------------------
+You have been provided with the complete, curated source code of the project in this archive.
+Your role is to perform an exhaustive, senior-level code review, security audit, edge-case analysis, and bug hunting across this codebase.
+
+The human user will NOT be manually implementing your review or writing code fixes.
+Instead, your review will be handed off to an autonomous AI Coding Agent (Antigravity) who will inspect, assess, and apply the code modifications directly to the repository.
+
+--------------------------------------------------------------------------------
+1.5. MANDATORY FIRST STEP: READ REVIEW HISTORY (`docs/reviews/`)
+--------------------------------------------------------------------------------
+Before inspecting source code or reporting findings, read:
+1. `docs/reviews/INDEX.md` (summary of prior review rounds and intentional design decisions).
+2. The most recent `docs/reviews/round-*.md` report (exact patches applied in the previous round).
+
+Use this history to:
+- **Avoid re-opening settled items**: Do NOT re-report items listed under "Intentional Decisions / Do-Not-Reopen" unless you can prove a concrete new failure mode that invalidates the documented rationale.
+- **Audit recent fixes for side effects**: Pay special attention to subtle regressions, lock/guard interactions, or edge cases introduced or exposed by the most recent round's patches.
+- **Focus on genuine remaining risk**: Prioritize previously under-examined paths and real data-integrity, concurrency, security, or cross-module bugs over minor style nits.
+
+--------------------------------------------------------------------------------
+2. CRITICAL CONSTRAINT: DO NOT DELEGATE FIXES
+--------------------------------------------------------------------------------
+⛔ STRICT PROHIBITION ON DELEGATION:
+- Do NOT say "Ask your AI agent to implement this", "Delegate this fix to your coding assistant", or "You should write a function that...".
+- Do NOT provide lazy, hand-wavy high-level suggestions without concrete code.
+- YOU MUST DO THE COMPLETE INTELLECTUAL AND ARCHITECTURAL WORK YOURSELF.
+- Write out the EXACT, complete, production-ready code changes in your report.
+- The downstream AI agent will execute and apply the changes, but YOU must provide the exact diffs, line replacements, and rationale so the agent's job is straightforward, clear, and unambiguous.
+
+--------------------------------------------------------------------------------
+3. REQUIRED DELIVERABLE & FORMAT
+--------------------------------------------------------------------------------
+Provide your complete review findings as a structured Markdown report:
+- Report filename: `REVIEW_REPORT.md`
+- If your environment / interface supports generating downloadable files or archives:
+  Zip `REVIEW_REPORT.md` into `review-report.zip` and send/attach that report.
+- If your environment only supports text/chat output:
+  Provide the complete, un-truncated markdown content directly in your response so it can be saved to `REVIEW_REPORT.md`.
+
+The report MUST begin with this exact directive banner addressed to the implementing AI Agent:
+
+> ### ⚠️ DIRECTIVE FOR THE IMPLEMENTING AI AGENT (ANTIGRAVITY):
+> Before applying any modifications proposed in this review:
+> 1. **VALIDATE & ASSESS FIRST**: Thoroughly inspect the live codebase to independently verify each finding. Do not assume all external review suggestions are infallible.
+> 2. **CHECK FOR REGRESSIONS**: Verify that proposed changes respect the monorepo architecture, type invariants, existing test suites, and cross-platform behavior (Windows / Tauri / Rust / React).
+> 3. **FALSE POSITIVE FILTER**: If a suggestion is based on incomplete context, conflicts with higher-level requirements, or represents an anti-pattern for this project, document your reasoning, reject or adjust the change, and notify the user.
+> 4. **TYPECHECK & TEST**: Always run `bun run typecheck:bun` (runs `bun check --skipLibCheck` across all workspaces in ~200ms) instead of standard `npm run typecheck`. Run test suites (`cargo test`, `vitest`) before and after applying changes to ensure zero regressions.
+> 5. **PERSIST REVIEW HISTORY**: After applying changes and verifying all tests pass, create `docs/reviews/round-XX-YYYY-MM-DD.md` (following `docs/reviews/TEMPLATE.md`) and update `docs/reviews/INDEX.md`.
+
+--------------------------------------------------------------------------------
+4. STRUCTURE OF EACH FINDING
+--------------------------------------------------------------------------------
+To make the implementing AI Agent's job easy, clear, and unambiguous, structure every finding as follows:
+
+### [ISSUE-ID] <Clear, Descriptive Title>
+- **Severity**: Critical | High | Medium | Low | Architectural / Refactor
+- **Category**: Concurrency / Race Condition | Memory / Safety | Logic Bug | Security | IPC / Platform | Performance | UI / State
+- **Target File**: `relative/path/to/file.ext` (exact path from repo root)
+- **Target Location**: Function name, class/struct, and line numbers
+- **Root Cause & Concrete Scenario**:
+  - Explain clearly *why* the issue happens, what conditions trigger the bug, and the concrete impact.
+  - Include an example scenario or edge-case trigger showing how the bug manifests.
+- **Exact Code Change (Unified Diff / Before & After)**:
+  - Provide ready-to-apply diffs with sufficient context lines so the agent can locate and edit the target block without ambiguity.
+  - Example:
+    ```diff
+    --- a/path/to/file.ts
+    +++ b/path/to/file.ts
+    @@ -120,7 +120,9 @@
+    -   const result = unsafeOperation();
+    +   const result = safeOperation();
+    +   if (!result.ok) {
+    +       return handleError(result.error);
+    +   }
+    ```
+- **Verification & Test Case**:
+  - Provide a specific unit test snippet or automated test steps to prove that the bug is fixed and verify no regressions.
+
+--------------------------------------------------------------------------------
+5. KEY REPOSITORY FOCUS AREAS
+--------------------------------------------------------------------------------
+1. **Rust / Tauri Backend**:
+   - Thread safety, Mutex/RwLock deadlocks, async runtime (tokio/tauri) blocking calls.
+   - SQLite connection pooling, transactions, WAL mode, unhandled `Result` or `unwrap()`.
+   - Windows API calls, Win32 hooks, UIA event listeners, memory leaks.
+2. **IPC & Data Transfer**:
+   - Serialization / deserialization boundaries between Rust and TypeScript.
+   - Missing error responses, unhandled promise rejections in frontend invoke handlers.
+3. **Frontend (React / TypeScript / State Management)**:
+   - Race conditions in clipboard polling, history capture, and queue processing.
+   - Unhandled edge cases (very large text, binary payloads, malformed data, non-standard shortcuts).
+   - Component unmounting during async operations, dangling subscriptions or timeouts.
+4. **Build & Platform Packaging**:
+   - Portability, relative data directories, path resolution across systems.
+
+Proceed with your in-depth review now. Provide all findings with the requested level of detail, clues, and exact code replacements.
+================================================================================

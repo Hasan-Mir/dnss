@@ -1,0 +1,22 @@
+# <type>(<scope>): <concise imperative summary under 72 chars>
+#
+# Problem & Root Cause:
+# - Describe what was broken, the defect/limitation, and why it occurred.
+#
+# Solution & Architecture:
+# - Detail how the issue was resolved and what invariants were established.
+#
+# Key changes by component:
+# - Core & DNS Engine:
+#   - 
+# - CLI & Client Tooling:
+#   - 
+# - Tauri Backend & Platform:
+#   - 
+# - GUI & Frontend:
+#   - 
+# - CI, Packaging & Tooling:
+#   - 
+#
+# Regression tests added / verified:
+# - 

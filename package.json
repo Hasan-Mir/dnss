@@ -25,6 +25,8 @@
         "build:gui": "npm run build --workspace @seymi/dnss-gui",
         "build:desktop": "npm run build:core && npm run tauri:build --workspace @seymi/dnss-gui",
         "typecheck": "npm run typecheck --workspaces --if-present",
+        "typecheck:bun": "concurrently -n root,core,cli,gui -c auto \"bun check --skipLibCheck\" \"bun run --cwd packages/core typecheck:bun\" \"bun run --cwd packages/cli typecheck:bun\" \"bun run --cwd packages/gui typecheck:bun\"",
+        "bundle:context": "bun run scripts/bundle-context.ts",
         "test": "npm run test --workspaces --if-present",
         "prettier": "prettier --write .",
         "prettier:check": "prettier --check ."
@@ -36,6 +38,7 @@
         "esbuild@0.21.5": true
     },
     "devDependencies": {
+        "concurrently": "^10.0.7",
         "fallow": "^3.20.0",
         "prettier": "^3.9.6",
         "vite-plugin-singlefile": "^2.3.3"
