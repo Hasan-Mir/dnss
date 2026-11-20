@@ -85,7 +85,14 @@ export function loadConfigs(): DnsConfig[] {
         const data = fs.readFileSync(CONFIG_PATH, 'utf-8').trim();
         if (!data) return [];
         const parsed: unknown = JSON.parse(data);
-        if (!Array.isArray(parsed)) return [];
+        if (!Array.isArray(parsed)) {
+            try {
+                safeBackupCopy(CONFIG_PATH, `${CONFIG_PATH}.corrupt`);
+            } catch {
+                // Best effort only.
+            }
+            return [];
+        }
         return partitionConfigs(parsed);
     } catch {
         // Quarantine the broken file instead of silently returning an empty
@@ -179,13 +186,24 @@ function writeConfigFile(data: string): void {
         .toString(36)
         .slice(2, 10)}.tmp`;
     const fd = fs.openSync(tmpPath, 'wx', 0o600);
+    let writeFailed = false;
     try {
         fs.writeSync(fd, Buffer.from(data, 'utf-8'));
         // Flush to stable storage before the rename so a crash right after
         // it can never leave a truncated configs.json behind.
         fs.fsyncSync(fd);
+    } catch (error) {
+        writeFailed = true;
+        throw error;
     } finally {
         fs.closeSync(fd);
+        if (writeFailed) {
+            try {
+                fs.unlinkSync(tmpPath);
+            } catch {
+                // Ignore: temp cleanup must not mask the original write error.
+            }
+        }
     }
     try {
         fs.renameSync(tmpPath, CONFIG_PATH);
@@ -212,22 +230,28 @@ export function saveConfigs(configs: DnsConfig[]): void {
 }
 
 export function upsertConfig(config: DnsConfig): DnsConfig[] {
+    const normalized: DnsConfig = {
+        name: config.name.trim(),
+        primary: config.primary.trim(),
+        alternative: config.alternative?.trim() || undefined,
+    };
     const configs = loadConfigs();
     const existingIndex = configs.findIndex(
-        (c) => c.name.toLowerCase() === config.name.toLowerCase()
+        (c) => c.name.trim().toLowerCase() === normalized.name.toLowerCase()
     );
     if (existingIndex >= 0) {
-        configs[existingIndex] = config;
+        configs[existingIndex] = normalized;
     } else {
-        configs.push(config);
+        configs.push(normalized);
     }
     saveConfigs(configs);
     return configs;
 }
 
 export function removeConfig(name: string): DnsConfig[] {
+    const target = name.trim().toLowerCase();
     const configs = loadConfigs().filter(
-        (c) => c.name.toLowerCase() !== name.toLowerCase()
+        (c) => c.name.trim().toLowerCase() !== target
     );
     saveConfigs(configs);
     return configs;
@@ -314,6 +338,8 @@ function loadLegacyConfigs(): DnsConfig[] {
     }
 }
 
+const MAX_NAME_LEN = 64;
+
 function isDnsConfig(value: unknown): value is DnsConfig {
     if (typeof value !== 'object' || value === null) return false;
     const config = value as Record<string, unknown>;
@@ -323,6 +349,10 @@ function isDnsConfig(value: unknown): value is DnsConfig {
         (config.alternative !== undefined &&
             typeof config.alternative !== 'string')
     ) {
+        return false;
+    }
+    const trimmedName = config.name.trim();
+    if (trimmedName.length === 0 || [...trimmedName].length > MAX_NAME_LEN) {
         return false;
     }
     // Persisted data is user-controlled: never trust it without validating

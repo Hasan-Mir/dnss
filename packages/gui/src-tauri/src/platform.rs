@@ -5,8 +5,15 @@ use super::{Adapter, DnsStatus};
 /// Run an external command with an argument vector (no shell involved,
 /// so no metacharacter injection is possible) and return its stdout.
 fn run(cmd: &str, args: &[&str]) -> Result<String, String> {
-    let output = Command::new(cmd)
-        .args(args)
+    let mut command = Command::new(cmd);
+    command.args(args);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    let output = command
         .output()
         .map_err(|e| format!("Failed to run {}: {}", cmd, e))?;
 
@@ -92,12 +99,48 @@ fn set_dns_outcome(adapter: &str, servers: &[String]) -> super::SetDnsOutcome {
 
 // ===== Windows =====
 
+/// Base64-encode UTF-16LE bytes, the format PowerShell's `-EncodedCommand`
+/// expects. Keeps scripts and non-ASCII adapter names free of quoting and
+/// OEM code-page pitfalls.
+#[cfg(target_os = "windows")]
+pub(crate) fn utf16le_base64(text: &str) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let bytes: Vec<u8> = text
+        .encode_utf16()
+        .flat_map(|unit| unit.to_le_bytes())
+        .collect();
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let word = ((chunk[0] as u32) << 16)
+            | ((chunk.get(1).copied().unwrap_or(0) as u32) << 8)
+            | chunk.get(2).copied().unwrap_or(0) as u32;
+        out.push(TABLE[(word >> 18) as usize & 63] as char);
+        out.push(TABLE[(word >> 12) as usize & 63] as char);
+        out.push(if chunk.len() > 1 {
+            TABLE[(word >> 6) as usize & 63] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            TABLE[word as usize & 63] as char
+        } else {
+            '='
+        });
+    }
+    out
+}
+
 /// Run a PowerShell snippet and return its stdout. Callers embed dynamic
 /// tokens as single-quoted PowerShell strings only (`''` escapes a quote);
 /// user data never becomes PowerShell syntax.
 #[cfg(target_os = "windows")]
 fn run_ps(script: &str) -> Result<String, String> {
-    run("powershell", &["-NoProfile", "-Command", script])
+    let utf8_script = format!(
+        "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8\n{}",
+        script
+    );
+    let encoded = utf16le_base64(&utf8_script);
+    run("powershell", &["-NoProfile", "-EncodedCommand", &encoded])
 }
 
 /// Quote a value for embedding inside a PowerShell single-quoted string.
@@ -133,7 +176,7 @@ $details = @($adapters | ForEach-Object {
     $props = Get-ItemProperty -Path \
         ('HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces\\' + $_.InterfaceGuid) \
         -ErrorAction SilentlyContinue
-    $regStatic = @(@($props.NameServer, $props.ProfileNameServer) -join ',' -split ',') | \
+    $regStatic = @(@($props.NameServer, $props.ProfileNameServer) -join ',' -split '[,\\s]+') | \
         ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }
     [PSCustomObject]@{
         Name = $_.Name
@@ -240,7 +283,7 @@ const SET_MANY_SCRIPT: &str = "\
 $ErrorActionPreference = 'Stop'
 try {
     $known = @{}
-    Get-NetAdapter | ForEach-Object { $known[$_.Name] = $true }
+    Get-NetAdapter | ForEach-Object { $known[$_.Name] = $_.ifIndex }
 } catch {
     [Console]::Error.WriteLine($_.Exception.Message)
     exit 1
@@ -251,6 +294,7 @@ foreach ($n in __NAMES__) {
         $results += [PSCustomObject]@{ adapter = $n; ok = $false; error = ('Unknown network adapter: ' + $n) }
         continue
     }
+    $ifIndex = $known[$n]
     try {
         __CMD__
         $results += [PSCustomObject]@{ adapter = $n; ok = $true; error = '' }
@@ -279,12 +323,12 @@ pub fn set_dns_many(
     // cmdlet covers both address families, so an IPv6 static resolver set
     // by another tool no longer survives a reset.
     let cmd = if servers.is_empty() {
-        "Set-DnsClientServerAddress -InterfaceAlias $n -ResetServerAddresses -ErrorAction Stop"
+        "Set-DnsClientServerAddress -InterfaceIndex $ifIndex -ResetServerAddresses -ErrorAction Stop"
             .to_string()
     } else {
         let quoted: Vec<String> = servers.iter().map(|s| ps_quote(s)).collect();
         format!(
-            "Set-DnsClientServerAddress -InterfaceAlias $n -ServerAddresses @({}) -ErrorAction Stop",
+            "Set-DnsClientServerAddress -InterfaceIndex $ifIndex -ServerAddresses @({}) -ErrorAction Stop",
             quoted.join(",")
         )
     };
@@ -531,7 +575,7 @@ pub fn network_status() -> Result<super::NetworkStatus, String> {
     for line in show.lines() {
         if let Some(name) = line.strip_prefix("GENERAL.DEVICE:") {
             current_device = Some(name.trim().to_string());
-        } else if line.starts_with("IP4.DNS[") {
+        } else if line.starts_with("IP4.DNS[") || line.starts_with("IP6.DNS[") {
             if let (Some(device), Some((_, server))) =
                 (current_device.as_ref(), line.split_once(':'))
             {
@@ -559,6 +603,13 @@ pub fn network_status() -> Result<super::NetworkStatus, String> {
         Some(name) => Some(get_active_dns(Some(name))?),
         None => None,
     };
+    if let (Some(def_name), Some(ref dns)) = (&default_adapter, &active_dns) {
+        if !dns.static_servers.is_empty() {
+            if let Some(adapter) = adapters.iter_mut().find(|a| &a.name == def_name) {
+                adapter.dns_static = true;
+            }
+        }
+    }
     Ok(super::NetworkStatus {
         adapters,
         default_adapter,
@@ -573,7 +624,11 @@ pub fn set_dns_many(
 ) -> Result<Vec<super::SetDnsOutcome>, String> {
     let resolved: Vec<String> = match names {
         Some(names) => names.to_vec(),
-        None => list_adapters()?.into_iter().map(|a| a.name).collect(),
+        None => list_adapters()?
+            .into_iter()
+            .map(|a| a.name)
+            .filter(|name| get_connection_name(name).is_ok())
+            .collect(),
     };
     Ok(resolved
         .iter()
@@ -781,16 +836,17 @@ pub fn reset_all_dns() -> Result<Vec<super::SetDnsOutcome>, String> {
     // of one per adapter. Every service name is shell-quoted here, and
     // run_privileged quotes the whole script again for AppleScript/sh
     // transport, so metacharacters in service names stay harmless.
-    let script = adapters
+    let body = adapters
         .iter()
         .map(|adapter| {
             format!(
-                "networksetup -setdnsservers {} empty",
+                "networksetup -setdnsservers {} empty || rc=1",
                 shell_quote(&adapter.name)
             )
         })
         .collect::<Vec<_>>()
         .join("; ");
+    let script = format!("rc=0; {}; exit $rc", body);
     run_privileged("sh", &["-c", &script]).map(|_| {
         adapters
             .iter()

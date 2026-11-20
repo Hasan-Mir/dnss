@@ -51,6 +51,7 @@ const en = {
     'toast.resetFailed': 'Reset failed: {error}',
     'toast.saveFailed': 'Failed to save: {error}',
     'toast.nameRequired': 'Name and primary DNS are required',
+    'toast.nameTooLong': 'Name must be 64 characters or fewer',
     'toast.badPrimary': 'Primary DNS must be a valid IPv4 address',
     'toast.badAlt': 'Alternative DNS must be a valid IPv4 address',
     'toast.duplicate': 'A server named "{name}" already exists',

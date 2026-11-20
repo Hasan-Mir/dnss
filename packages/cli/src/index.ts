@@ -99,23 +99,39 @@ function getCurrentDNSWindowsAll(): {
     alternative?: string;
 }[] {
     const script = [
+        '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8;',
         '$dns = @{};',
         'Get-DnsClientServerAddress | ForEach-Object { $dns[$_.InterfaceAlias] = @($dns[$_.InterfaceAlias]) + @($_.ServerAddresses) };',
         '$result = @();',
         'Get-NetAdapter | ForEach-Object {',
         '  $p = Get-ItemProperty -Path ("HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces\\" + $_.InterfaceGuid) -ErrorAction SilentlyContinue;',
-        '  $result += [PSCustomObject]@{ name = $_.Name; inUse = @($dns[$_.Name]); static = @(@($p.NameServer) + @($p.ProfileNameServer)) }',
+        '  $staticList = @(@($p.NameServer, $p.ProfileNameServer) -join "," -split "[,\\s]+" | Where-Object { $_ -ne "" });',
+        '  $result += [PSCustomObject]@{ name = $_.Name; inUse = @($dns[$_.Name]); static = @($staticList) }',
         '};',
-        '$result | ConvertTo-Json -Compress -Depth 3',
+        'ConvertTo-Json -Compress -Depth 3 -InputObject @($result)',
     ].join(' ');
-    const output = execFileSync(
-        'powershell',
-        ['-NoProfile', '-Command', script],
-        {
-            encoding: 'utf-8',
-        }
-    );
-    const parsed: unknown = JSON.parse(output);
+    let output: string;
+    try {
+        output = execFileSync(
+            'powershell',
+            ['-NoProfile', '-Command', script],
+            {
+                encoding: 'utf-8',
+            }
+        );
+    } catch (error) {
+        console.error(chalk.red('Error reading DNS settings:'), error);
+        return [];
+    }
+    if (!output.trim()) {
+        return [];
+    }
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(output);
+    } catch {
+        return [];
+    }
     const items = Array.isArray(parsed) ? parsed : [parsed];
     return items.flatMap((item) => {
         if (typeof item !== 'object' || item === null) {
@@ -169,7 +185,7 @@ function getNetworkAdapters(): string[] {
                 [
                     '-NoProfile',
                     '-Command',
-                    'Get-NetAdapter | Select-Object -ExpandProperty Name | ConvertTo-Json',
+                    '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; ConvertTo-Json -InputObject @(Get-NetAdapter | Select-Object -ExpandProperty Name)',
                 ],
                 { encoding: 'utf-8' }
             );
@@ -226,9 +242,10 @@ function getCurrentDNS(adapter?: string): DnsConfig | null {
             const escaped = alias.replace(/'/g, "''");
             const aliasArg = alias ? ` -InterfaceAlias '${escaped}'` : '';
             const script = [
+                '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8;',
                 `$guids = @((Get-NetAdapter${aliasArg}) | Select-Object -ExpandProperty InterfaceGuid);`,
                 `$dns = @(Get-DnsClientServerAddress${aliasArg} | Select-Object -ExpandProperty ServerAddresses);`,
-                `$ns = $guids | ForEach-Object { $p = Get-ItemProperty -Path "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces\\$_" -ErrorAction SilentlyContinue; @($p.NameServer, $p.ProfileNameServer) -join ',' } | ForEach-Object { $_ -split ',' };`,
+                `$ns = $guids | ForEach-Object { $p = Get-ItemProperty -Path "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces\\$_" -ErrorAction SilentlyContinue; @($p.NameServer, $p.ProfileNameServer) -join ',' } | ForEach-Object { $_ -split '[,\\s]+' };`,
                 '[PSCustomObject]@{ inUse = @($dns); static = @($ns) } | ConvertTo-Json -Compress',
             ].join(' ');
             const output = execFileSync(
@@ -368,7 +385,11 @@ function resolveLinuxConnection(device: string): string | null {
  * Apply the DNS settings to the given network adapter.
  * If config is undefined, set DNS to automatic (DHCP).
  */
-function setDNS(adapter: string, config?: DnsConfig) {
+function setDNS(
+    adapter: string,
+    config?: DnsConfig,
+    options?: { skipDisconnectedLinux?: boolean }
+): { ok: true } | { ok: false; error: string } {
     const osType = getOS();
     // Normalized values: the validators accept surrounding whitespace (they
     // trim before matching), so the command line must receive the trimmed
@@ -378,25 +399,20 @@ function setDNS(adapter: string, config?: DnsConfig) {
     // Validate at the point of use: saved configs come from disk and must
     // never be trusted just because they were once entered through the UI.
     if (!isSafeAdapterName(adapter)) {
-        console.error(chalk.red(`Refusing unsafe adapter name: "${adapter}"`));
-        return;
+        const message = `Refusing unsafe adapter name: "${adapter}"`;
+        console.error(chalk.red(message));
+        return { ok: false, error: message };
     }
     if (config) {
         if (!isSafeDnsAddress(config.primary)) {
-            console.error(
-                chalk.red(
-                    `Refusing invalid primary DNS address: "${config.primary}"`
-                )
-            );
-            return;
+            const message = `Refusing invalid primary DNS address: "${config.primary}"`;
+            console.error(chalk.red(message));
+            return { ok: false, error: message };
         }
         if (config.alternative && !isSafeDnsAddress(config.alternative)) {
-            console.error(
-                chalk.red(
-                    `Refusing invalid alternative DNS address: "${config.alternative}"`
-                )
-            );
-            return;
+            const message = `Refusing invalid alternative DNS address: "${config.alternative}"`;
+            console.error(chalk.red(message));
+            return { ok: false, error: message };
         }
     }
 
@@ -461,12 +477,12 @@ function setDNS(adapter: string, config?: DnsConfig) {
             // device to its active profile first (they often differ).
             const connection = resolveLinuxConnection(adapterName);
             if (!connection) {
-                console.error(
-                    chalk.red(
-                        `Adapter "${adapterName}" has no active NetworkManager connection to modify.`
-                    )
-                );
-                return;
+                if (options?.skipDisconnectedLinux) {
+                    return { ok: true };
+                }
+                const message = `Adapter "${adapterName}" has no active NetworkManager connection to modify.`;
+                console.error(chalk.red(message));
+                return { ok: false, error: message };
             }
             if (!config) {
                 logSettingDnsToAuto();
@@ -559,11 +575,16 @@ function setDNS(adapter: string, config?: DnsConfig) {
         }
 
         console.log(chalk.green('✔ DNS settings updated successfully.'));
+        return { ok: true };
     } catch (error) {
         console.error(
             chalk.red('Failed to update DNS settings. Run as admin/sudo?'),
             error
         );
+        return {
+            ok: false,
+            error: error instanceof Error ? error.message : String(error),
+        };
     }
 }
 
@@ -844,14 +865,11 @@ async function changeDNSFlow(): Promise<boolean> {
         // not abort the remaining ones.
         const failures: string[] = [];
         for (const name of adapters) {
-            try {
-                setDNS(name, selectedConfig);
-            } catch (error) {
-                failures.push(
-                    `${name}: ${
-                        error instanceof Error ? error.message : String(error)
-                    }`
-                );
+            const result = setDNS(name, selectedConfig, {
+                skipDisconnectedLinux: true,
+            });
+            if (!result.ok) {
+                failures.push(`${name}: ${result.error}`);
             }
         }
         if (failures.length > 0) {
@@ -886,6 +904,10 @@ async function addDNSConfigFlow(): Promise<boolean> {
             type: 'input',
             name: 'name',
             message: 'Configuration name (e.g. "Google", "Cloudflare"):',
+            validate: (input: string) =>
+                [...input.trim()].length <= 64
+                    ? true
+                    : 'Name must be 64 characters or fewer.',
         },
     ]);
     if (name.trim() === '') {
@@ -1040,8 +1062,21 @@ async function editDNSConfigFlow(): Promise<boolean> {
             name: 'name',
             message: 'New configuration name:',
             default: configs[editIndex].name,
-            validate: (input: string) =>
-                input.trim() !== '' ? true : 'Name cannot be empty.',
+            validate: (input: string) => {
+                const trimmed = input.trim();
+                if (trimmed === '') return 'Name cannot be empty.';
+                if ([...trimmed].length > 64) {
+                    return 'Name must be 64 characters or fewer.';
+                }
+                const duplicate = configs.some(
+                    (c, i) =>
+                        i !== editIndex &&
+                        c.name.trim().toLowerCase() === trimmed.toLowerCase()
+                );
+                return duplicate
+                    ? `A configuration named "${trimmed}" already exists.`
+                    : true;
+            },
         },
         {
             type: 'input',
@@ -1227,10 +1262,14 @@ async function showCurrentDNSConfigsFlow(): Promise<boolean> {
         rows = getCurrentDNSWindowsAll();
     } else {
         const adapters = getNetworkAdapters();
-        rows = adapters.map((adapter) => ({
-            name: adapter,
-            ...getCurrentDNS(adapter),
-        }));
+        rows = adapters.map((adapter) => {
+            const current = getCurrentDNS(adapter);
+            return {
+                name: adapter,
+                primary: current?.primary,
+                alternative: current?.alternative,
+            };
+        });
     }
     if (rows.length === 0) {
         console.log(chalk.yellow('No network adapters found.'));

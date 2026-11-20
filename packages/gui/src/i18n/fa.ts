@@ -53,6 +53,7 @@ const fa: Dict = {
     'toast.resetFailed': 'بازنشانی ناموفق بود: {error}',
     'toast.saveFailed': 'ذخیره ناموفق بود: {error}',
     'toast.nameRequired': 'وارد کردن نام و DNS اصلی الزامی است',
+    'toast.nameTooLong': 'نام نباید بیشتر از ۶۴ کاراکتر باشد',
     'toast.badPrimary': 'DNS اصلی باید یک آدرس IPv4 معتبر باشد',
     'toast.badAlt': 'DNS جایگزین باید یک آدرس IPv4 معتبر باشد',
     'toast.duplicate': 'سروری با نام «{name}» از قبل وجود دارد',

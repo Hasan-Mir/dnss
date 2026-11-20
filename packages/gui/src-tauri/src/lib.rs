@@ -184,6 +184,7 @@ fn parse_benchmark_target(target: &str) -> Result<(String, u16), String> {
             .split('.')
             .all(|label| {
                 !label.is_empty()
+                    && label.len() <= 63
                     && !label.starts_with('-')
                     && !label.ends_with('-')
                     && label
@@ -230,37 +231,6 @@ async fn benchmark_dns(
     })
     .await
     .map_err(|e| format!("Benchmark task failed: {}", e))?
-}
-
-/// Base64-encode UTF-16LE bytes, the format PowerShell's `-EncodedCommand`
-/// expects. Keeps the elevation relaunch free of quoting pitfalls with the
-/// spaced paths a dev checkout tends to live in.
-#[cfg(all(target_os = "windows", debug_assertions))]
-fn utf16le_base64(text: &str) -> String {
-    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let bytes: Vec<u8> = text
-        .encode_utf16()
-        .flat_map(|unit| unit.to_le_bytes())
-        .collect();
-    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
-    for chunk in bytes.chunks(3) {
-        let word = ((chunk[0] as u32) << 16)
-            | ((chunk.get(1).copied().unwrap_or(0) as u32) << 8)
-            | chunk.get(2).copied().unwrap_or(0) as u32;
-        out.push(TABLE[(word >> 18) as usize & 63] as char);
-        out.push(TABLE[(word >> 12) as usize & 63] as char);
-        out.push(if chunk.len() > 1 {
-            TABLE[(word >> 6) as usize & 63] as char
-        } else {
-            '='
-        });
-        out.push(if chunk.len() > 2 {
-            TABLE[word as usize & 63] as char
-        } else {
-            '='
-        });
-    }
-    out
 }
 
 /// Dev-only Windows bootstrap: make sure the app actually runs elevated.
@@ -311,7 +281,7 @@ fn ensure_elevation_for_dev() {
         exe.display().to_string().replace('\'', "''")
     );
     let status = Command::new("powershell")
-        .args(["-NoProfile", "-EncodedCommand", &utf16le_base64(&script)])
+        .args(["-NoProfile", "-EncodedCommand", &platform::utf16le_base64(&script)])
         .status();
 
     match status {
@@ -404,5 +374,10 @@ mod tests {
         assert!(parse_benchmark_target("example-.com").is_err());
         // Custom ports are out of scope (the CLI ignores them too).
         assert!(parse_benchmark_target("example.com:8080").is_err());
+        // RFC 1035: each DNS label must be at most 63 bytes.
+        let max_label = format!("{}.com", "a".repeat(63));
+        assert!(parse_benchmark_target(&max_label).is_ok());
+        let too_long_label = format!("{}.com", "a".repeat(64));
+        assert!(parse_benchmark_target(&too_long_label).is_err());
     }
 }

@@ -257,6 +257,7 @@ function ServerForm({
     name,
     primary,
     alternative,
+    saving,
     onName,
     onPrimary,
     onAlternative,
@@ -269,6 +270,7 @@ function ServerForm({
     name: string;
     primary: string;
     alternative: string;
+    saving?: boolean;
     onName: (v: string) => void;
     onPrimary: (v: string) => void;
     onAlternative: (v: string) => void;
@@ -287,6 +289,7 @@ function ServerForm({
                     className="input input-sm w-full"
                     placeholder={i18n.t('form.namePh')}
                     value={name}
+                    maxLength={64}
                     onChange={(e) => onName(e.target.value)}
                 />
                 <input
@@ -304,13 +307,18 @@ function ServerForm({
                     onChange={(e) => onAlternative(e.target.value)}
                 />
                 <div className="flex justify-end gap-2">
-                    <button className="btn btn-ghost btn-sm" onClick={onCancel}>
+                    <button
+                        className="btn btn-ghost btn-sm"
+                        onClick={onCancel}
+                        disabled={saving}
+                    >
                         <XMarkIcon className="size-4" />
                         {i18n.t('common.cancel')}
                     </button>
                     <button
                         className="btn btn-primary btn-sm"
                         onClick={onSubmit}
+                        disabled={saving}
                     >
                         <CheckIcon className="size-4" />
                         {mode === 'edit'
@@ -358,6 +366,7 @@ export default function ServersPage({
     const [name, setName] = useState('');
     const [primary, setPrimary] = useState('');
     const [alternative, setAlternative] = useState('');
+    const [saving, setSaving] = useState(false);
 
     // Floating panels (apply menu / delete confirm), one open at a time.
     const [applyMenuKey, setApplyMenuKey] = useState<string | null>(null);
@@ -597,12 +606,16 @@ export default function ServersPage({
     };
 
     const submitForm = async () => {
-        if (!form) return;
+        if (!form || saving) return;
         const trimmedName = name.trim();
         const trimmedPrimary = primary.trim();
         const trimmedAlternative = alternative.trim();
         if (!trimmedName || !trimmedPrimary) {
             showToast(t('toast.nameRequired'), 'error');
+            return;
+        }
+        if ([...trimmedName].length > 64) {
+            showToast(t('toast.nameTooLong'), 'error');
             return;
         }
         // Validate locally so obviously wrong input never reaches the
@@ -635,19 +648,31 @@ export default function ServersPage({
         } else {
             next.push(config);
         }
-        if (await persistConfigs(next)) {
-            closeForm();
-            showToast(
-                form.mode === 'edit'
-                    ? t('toast.updated', { name: trimmedName })
-                    : t('toast.added', { name: trimmedName })
-            );
+        setSaving(true);
+        try {
+            if (await persistConfigs(next)) {
+                closeForm();
+                showToast(
+                    form.mode === 'edit'
+                        ? t('toast.updated', { name: trimmedName })
+                        : t('toast.added', { name: trimmedName })
+                );
+            }
+        } finally {
+            setSaving(false);
         }
     };
 
     const removeConfig = async (index: number) => {
         if (await persistConfigs(configs.filter((_, i) => i !== index))) {
             setConfirmKey(null);
+            if (form?.mode === 'edit') {
+                if (form.index === index) {
+                    closeForm();
+                } else if (form.index > index) {
+                    setForm({ mode: 'edit', index: form.index - 1 });
+                }
+            }
         }
     };
 
@@ -923,6 +948,7 @@ export default function ServersPage({
                         name={name}
                         primary={primary}
                         alternative={alternative}
+                        saving={saving}
                         onName={setName}
                         onPrimary={setPrimary}
                         onAlternative={setAlternative}
@@ -1056,6 +1082,7 @@ export default function ServersPage({
                         name={name}
                         primary={primary}
                         alternative={alternative}
+                        saving={saving}
                         onName={setName}
                         onPrimary={setPrimary}
                         onAlternative={setAlternative}

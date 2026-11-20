@@ -235,13 +235,14 @@ pub fn save_configs(configs: Vec<DnsConfig>) -> Result<Vec<DnsConfig>, String> {
     let mut file = options
         .open(&tmp_path)
         .map_err(|e| format!("Failed to write configs: {}", e))?;
-    file.write_all(data.as_bytes())
-        .map_err(|e| format!("Failed to write configs: {}", e))?;
-    // Flush to stable storage before the rename so a crash right after it
-    // can never leave a truncated configs.json behind.
-    file.sync_all()
-        .map_err(|e| format!("Failed to write configs: {}", e))?;
+    let write_res = file
+        .write_all(data.as_bytes())
+        .and_then(|_| file.sync_all());
     drop(file);
+    if let Err(error) = write_res {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(format!("Failed to write configs: {}", error));
+    }
 
     // rename() replaces an existing destination atomically on both Unix and
     // Windows, so the target must NOT be removed first — that would open a

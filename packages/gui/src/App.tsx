@@ -159,6 +159,8 @@ export default function App({
 
     const i18n = useMemo(() => createI18n(lang), [lang]);
     const { t } = i18n;
+    const tRef = useRef(t);
+    tRef.current = t;
 
     const showToast = useCallback(
         (message: string, kind: 'success' | 'error' = 'success') => {
@@ -173,6 +175,14 @@ export default function App({
         },
         []
     );
+
+    useEffect(() => {
+        return () => {
+            if (toastTimer.current !== null) {
+                window.clearTimeout(toastTimer.current);
+            }
+        };
+    }, []);
 
     // Sync theme from external prop
     useEffect(() => {
@@ -207,15 +217,18 @@ export default function App({
     // CLI); the app owns the list so Home can annotate addresses with their
     // configured names and Servers can edit the list in place.
     useEffect(() => {
+        if (!isDesktopApp()) return;
         api.getConfigs()
             .then(setConfigs)
             .catch((error) => {
                 showToast(
-                    t('toast.loadSavedFailed', { error: String(error) }),
+                    tRef.current('toast.loadSavedFailed', {
+                        error: String(error),
+                    }),
                     'error'
                 );
             });
-    }, [showToast, t]);
+    }, [showToast]);
 
     // Overlapping refreshes (rapid clicks, apply + refresh) must not apply
     // out of order; only the latest invocation may update state.
@@ -266,6 +279,7 @@ export default function App({
     }, []);
 
     useEffect(() => {
+        if (!isDesktopApp()) return;
         refreshStatus();
     }, [refreshStatus]);
 

@@ -69,8 +69,7 @@
                         case 'set_dns_many': {
                             await delay(700);
                             const names =
-                                args.adapters ??
-                                adapters.map((a) => a.name);
+                                args.adapters ?? adapters.map((a) => a.name);
                             for (const n of names) {
                                 const adapter = adapters.find(
                                     (a) => a.name === n
@@ -79,8 +78,7 @@
                                 adapter.dns_servers = args.servers.length
                                     ? [...args.servers]
                                     : ['192.168.1.1'];
-                                adapter.dns_static =
-                                    args.servers.length > 0;
+                                adapter.dns_static = args.servers.length > 0;
                             }
                             const first = adapters.find(
                                 (a) => a.name === names[0]
@@ -143,9 +141,7 @@
                             if (args.server === '194.242.2.2')
                                 throw new Error('DNS query timed out');
                             return {
-                                resolve_ms: Math.round(
-                                    20 + Math.random() * 80
-                                ),
+                                resolve_ms: Math.round(20 + Math.random() * 80),
                                 connect_ms: Math.round(10 + Math.random() * 40),
                                 address: '104.16.123.96',
                             };

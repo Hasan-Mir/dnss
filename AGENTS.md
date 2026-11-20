@@ -37,7 +37,7 @@ bun run bundle:context
 .\bundle-context.cmd
 ```
 
-This creates `<project>-context.zip` (e.g. `clipnest-context.zip`) containing all required files and an injected `prompt.txt` with review instructions.
+This creates `<project>-context.zip` (e.g. `dnss-context.zip`) containing all required files and an injected `prompt.txt` with review instructions.
 
 ---
 
@@ -51,16 +51,17 @@ Before and after applying modifications:
     ```
 2. **Rust Tests**:
     ```bash
-    cargo test --manifest-path packages/core/Cargo.toml
-    cargo test --manifest-path src-tauri/Cargo.toml
+    cargo test --manifest-path packages/gui/src-tauri/Cargo.toml
     ```
-3. **Frontend Tests**:
+3. **Core & Node Tests**:
     ```bash
-    npm test
+    npm run build:core && npm test
     ```
 4. **Formatting**:
     ```bash
-    npm run format
+    npm run prettier:check
+    # or to apply formatting:
+    npm run prettier
     ```
 
 ---
@@ -70,23 +71,24 @@ Before and after applying modifications:
 Every Git commit created in this repository (by AI agents or human contributors) **MUST** be comprehensive, detailed, and structured. Single-line, terse, or vague commit messages (such as `"fix bugs"`, `"update styles"`, or `"refactor code"`) are **strictly prohibited**.
 
 ### Core Requirements for Every Commit Message:
+
 1. **Header (Subject Line)**:
-   - Format: `<type>(<optional-scope>): <imperative summary>` (e.g. `fix: resolve clipboard overflow and CLI path resolution`).
-   - Limit: Under 72 characters.
-   - Mood: Imperative active present tense (`apply`, `fix`, `resolve`, `harden`).
+    - Format: `<type>(<optional-scope>): <imperative summary>` (e.g. `fix: resolve clipboard overflow and CLI path resolution`).
+    - Limit: Under 72 characters.
+    - Mood: Imperative active present tense (`apply`, `fix`, `resolve`, `harden`).
 2. **Context & Root Cause (What was the problem?)**:
-   - Explicitly describe what was broken, the defect/limitation, why it happened, and what conditions triggered it.
+    - Explicitly describe what was broken, the defect/limitation, why it happened, and what conditions triggered it.
 3. **Resolution & Mechanism (How was it solved?)**:
-   - Detail the architectural and code-level changes made to eliminate the root cause and guarantee safety.
+    - Detail the architectural and code-level changes made to eliminate the root cause and guarantee safety.
 4. **Key Changes by Component (Subsystem Breakdown)**:
-   - Partition changes by architectural layer with exact symbols, files, and functions in backticks:
-     - **Core & Storage**: SQLite tables, queries, migrations, Rust db/search/ipc invariants.
-     - **CLI & Client Tooling**: TypeScript CLI options, argument parsers, exit codes, IPC transports.
-     - **Tauri Backend & Platform**: OS APIs, Windows COM, Win32 calls, process management.
-     - **Frontend & Security**: React components, CSS sanitization, event listeners, keyboard traps.
-     - **CI & Build Pipeline**: GitHub Actions workflows, portable bundlers, release scripts.
+    - Partition changes by architectural layer with exact symbols, files, and functions in backticks:
+        - **Core & Storage**: SQLite tables, queries, migrations, Rust db/search/ipc invariants.
+        - **CLI & Client Tooling**: TypeScript CLI options, argument parsers, exit codes, IPC transports.
+        - **Tauri Backend & Platform**: OS APIs, Windows COM, Win32 calls, process management.
+        - **Frontend & Security**: React components, CSS sanitization, event listeners, keyboard traps.
+        - **CI & Build Pipeline**: GitHub Actions workflows, portable bundlers, release scripts.
 5. **Regression Tests & Verification**:
-   - Explicitly list all new or updated tests and edge cases verified (unit tests, integration tests, E2E tests).
+    - Explicitly list all new or updated tests and edge cases verified (unit tests, integration tests, E2E tests).
 
 ### Canonical Commit Template:
 
@@ -119,18 +121,18 @@ Regression tests added / verified:
 Whenever implementing, applying, or adapting directives, patches, or code reviews originating from an external AI or second-opinion agent (e.g. `REVIEW_REPORT.md`, `AGENT_DIRECTIVES.md`, external code review outputs, second-opinion prompt artifacts):
 
 1. **Do NOT blindly apply external code**:
-   - Thoroughly validate proposed changes against the live codebase, type invariants, and runtime behavior.
-   - Actively identify flawed assumptions, shadowing conflicts, missing/invalid imports, non-existent database columns/schemas, or broken logic in external AI recommendations.
+    - Thoroughly validate proposed changes against the live codebase, type invariants, and runtime behavior.
+    - Actively identify flawed assumptions, shadowing conflicts, missing/invalid imports, non-existent database columns/schemas, or broken logic in external AI recommendations.
 
 2. **Mandatory Divergence & Adaptation Section in Chat Report**:
    In the completion report presented to the user in chat, the agent **MUST** include a prominent, dedicated section titled **"Divergences & Adaptations from External AI Directives"**. This section must explicitly specify:
-   - **Corrections made to external suggestions**: Any syntax errors, TypeScript shadowing collisions, or invalid database schemas present in the external AI's snippets that were corrected before applying.
-   - **Architectural or logic adjustments**: Where and why the agent deviated from the external AI's proposed solution to prevent regressions or invariant violations.
-   - **Rejected suggestions / False positives**: Any recommendation from the external review that was rejected or altered, along with the concrete technical reasoning.
-   - **Tests adjusted or added**: Any test proposed by the external AI that had incorrect assertions or broken assumptions, and how it was made compliant with the actual codebase.
+    - **Corrections made to external suggestions**: Any syntax errors, TypeScript shadowing collisions, or invalid database schemas present in the external AI's snippets that were corrected before applying.
+    - **Architectural or logic adjustments**: Where and why the agent deviated from the external AI's proposed solution to prevent regressions or invariant violations.
+    - **Rejected suggestions / False positives**: Any recommendation from the external review that was rejected or altered, along with the concrete technical reasoning.
+    - **Tests adjusted or added**: Any test proposed by the external AI that had incorrect assertions or broken assumptions, and how it was made compliant with the actual codebase.
 
 3. **Mandatory Review History Persistence (`docs/reviews/`)**:
    Before finishing or committing a review round, the agent **MUST**:
-   - Create `docs/reviews/round-XX-YYYY-MM-DD.md` using `docs/reviews/TEMPLATE.md`, documenting the exact applied fixes, divergences/rejected items, pre-apply check outcomes, regression tests, and verification results.
-   - Update `docs/reviews/INDEX.md` with the new round entry, any new **Intentional Decisions / Do-Not-Reopen** items, and updated **Pending Manual Verification** items.
-   - Because `docs/reviews/` is automatically included by `scripts/bundle-context.ts`, this gives future external AI reviewers full continuity across rounds.
+    - Create `docs/reviews/round-XX-YYYY-MM-DD.md` using `docs/reviews/TEMPLATE.md`, documenting the exact applied fixes, divergences/rejected items, pre-apply check outcomes, regression tests, and verification results.
+    - Update `docs/reviews/INDEX.md` with the new round entry, any new **Intentional Decisions / Do-Not-Reopen** items, and updated **Pending Manual Verification** items.
+    - Because `docs/reviews/` is automatically included by `scripts/bundle-context.ts`, this gives future external AI reviewers full continuity across rounds.

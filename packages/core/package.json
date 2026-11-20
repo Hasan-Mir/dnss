@@ -43,7 +43,7 @@
         "typecheck:bun": "bun check --skipLibCheck",
         "prettier": "prettier --write .",
         "prettier:check": "prettier --check .",
-        "test": "node --test tests/validate.test.mjs"
+        "test": "node --test"
     },
     "devDependencies": {
         "@types/node": "^22.20.1",
