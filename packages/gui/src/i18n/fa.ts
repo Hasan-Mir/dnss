@@ -7,6 +7,13 @@
 import type { Dict } from './en';
 
 const fa: Dict = {
+    // Window chrome
+    'window.title': 'DNSS - تغییر DNS',
+    'window.minimize': 'کوچک کردن',
+    'window.maximize': 'بزرگ کردن',
+    'window.restore': 'بازگرداندن اندازه',
+    'window.close': 'بستن به سینی سیستم',
+
     // Header / navigation
     'app.tagline': 'تغییر DNS',
     'app.toggleTheme': 'تغییر تم',
@@ -98,8 +105,13 @@ const fa: Dict = {
     'servers.benchTarget': 'هدف بنچمارک',
     'servers.benchTargetHint':
         'دامنه‌ای که هنگام سنجش تأخیر بررسی می‌شود (مشترک با CLI).',
-    'servers.saved': 'سرورهای سفارشی',
-    'servers.presets': 'سرورهای آماده',
+    'servers.vpnFakeIpWarning':
+        'حالت FakeIP در VPN (رنج 198.18.x.x) درخواست‌های بنچمارک را رهگیری کرده است. برای سنجش واقعی تأخیر سرورها، حالت TUN / FakeIP را موقتاً غیرفعال کنید.',
+    'servers.vpnHijackWarning':
+        'چند سرور مختلف با تأخیر کمتر از ۵ میلی‌ثانیه و IP یکسان پاسخ دادند. آداپتور VPN/TUN فعال ({adapter}) احتمالاً ترافیک DNS و TCP را به‌صورت محلی پاسخ می‌دهد — برای نتیجهٔ دقیق، حالت TUN را موقتاً خاموش کنید.',
+    'servers.benchFailedSummary': 'بنچمارک ناموفق بود: {reason}',
+    'servers.breakdownTooltip':
+        '{address} · DNS {resolve} ms + TCP {connect} ms',
     'servers.noSavedMatch': 'هیچ سرور سفارشی با «{query}» پیدا نشد',
     'servers.noSavedYet':
         'هنوز سرور سفارشی ذخیره نشده — یک سرور جدید اضافه کنید',
@@ -132,6 +144,18 @@ const fa: Dict = {
     'settings.light': 'روشن',
     'settings.dark': 'تاریک',
     'settings.system': 'سیستم',
+    'settings.accent': 'رنگ اصلی (Accent)',
+    'settings.accentDesc':
+        'از رنگ‌های آماده انتخاب کنید یا هر طیف رنگی دلخواه بسازید.',
+    'settings.accentHue': 'طیف رنگ',
+    'settings.accentSat': 'اشباع رنگ',
+    'settings.accentReset': 'بازنشانی',
+    'settings.font': 'فونت برنامه',
+    'settings.fontDesc':
+        'فونت رابط کاربری را انتخاب کنید (متن فارسی همواره با وزیرمتن نمایش داده می‌شود).',
+    'settings.fontSize': 'اندازهٔ فونت',
+    'settings.fontSizeDesc':
+        'اندازهٔ نوشته‌ها را در پنجرهٔ اصلی و پنل سینی سیستم تنظیم کنید.',
     'settings.language': 'زبان',
     'settings.languageHint':
         'بلافاصله اعمال می‌شود و نیازی به راه‌اندازی مجدد نیست.',
@@ -164,7 +188,9 @@ const fa: Dict = {
     'tray.targetActive': 'فعال ({name})',
     'tray.targetAll': 'همهٔ آداپتورها ({count})',
     'tray.addCustom': 'سفارشی',
-    'tray.benchmark': 'بنچمارک',
+    'tray.benchmark': 'بنچمارک همه',
+    'tray.benchmarking': 'در حال بنچمارک…',
+    'tray.customTitle': 'افزودن سرور سفارشی',
     'tray.resetDhcp': 'بازگشت DHCP',
     'tray.restore': 'بازگردانی',
     'tray.flush': 'پاکسازی کش',

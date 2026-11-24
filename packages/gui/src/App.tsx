@@ -20,15 +20,31 @@ import {
     type DnsStatus,
 } from './api';
 import {
+    ACCENT_KEY,
+    FONT_KEY,
+    FONT_SIZE_KEY,
+    THEME_KEY,
+    applyAccent,
+    applyFontFamily,
+    applyFontSize,
     applyTheme,
     getResolvedTheme,
+    loadAccent,
+    loadFontFamily,
+    loadFontSize,
     loadTheme,
+    saveAccent,
+    saveFontFamily,
+    saveFontSize,
     saveTheme,
     watchSystemTheme,
+    type FontFamilyId,
+    type FontSizePx,
     type ThemeMode,
 } from './theme';
 import { applyLang, createI18n, loadLang, saveLang, type Lang } from './i18n';
 import appIcon from './assets/app-icon.png';
+import TitleBar from './components/TitleBar';
 import HomePage from './pages/Home';
 import ServersPage from './pages/Servers';
 import SettingsPage from './pages/Settings';
@@ -93,6 +109,8 @@ export interface AppProps {
     onThemeChange?: (theme: ThemeMode) => void;
     lang?: Lang;
     onLangChange?: (lang: Lang) => void;
+    /** Hide the frameless desktop TitleBar when embedded inside the docs landing page mockup. */
+    embedded?: boolean;
 }
 
 export default function App({
@@ -100,12 +118,16 @@ export default function App({
     onThemeChange: onExternalThemeChange,
     lang: externalLang,
     onLangChange: onExternalLangChange,
+    embedded = false,
 }: AppProps = {}) {
     const [page, setPage] = useState<Page>('home');
     const [theme, setTheme] = useState<ThemeMode>(
         () => externalTheme ?? loadTheme()
     );
     const [lang, setLang] = useState<Lang>(() => externalLang ?? loadLang());
+    const [fontFamily, setFontFamily] = useState<FontFamilyId>(loadFontFamily);
+    const [fontSize, setFontSize] = useState<FontSizePx>(loadFontSize);
+    const [accent, setAccent] = useState<string>(loadAccent);
     const [adapters, setAdapters] = useState<Adapter[]>([]);
     const [activeAdapter, setActiveAdapter] = useState<Adapter | null>(null);
     const [activeDns, setActiveDns] = useState<DnsStatus | null>(null);
@@ -120,6 +142,8 @@ export default function App({
         kind: 'success' | 'error';
     } | null>(null);
     const toastTimer = useRef<number | null>(null);
+
+    const isEmbeddedDemo = embedded || Boolean(onExternalThemeChange);
 
     // Sync language from external prop
     useEffect(() => {
@@ -184,6 +208,22 @@ export default function App({
         saveTheme(theme);
     }, [theme]);
 
+    // Apply font family, font size, and accent color changes
+    useEffect(() => {
+        applyFontFamily(fontFamily);
+        saveFontFamily(fontFamily);
+    }, [fontFamily]);
+
+    useEffect(() => {
+        applyFontSize(fontSize);
+        saveFontSize(fontSize);
+    }, [fontSize]);
+
+    useEffect(() => {
+        applyAccent(accent, getResolvedTheme(theme));
+        saveAccent(accent);
+    }, [accent, theme]);
+
     const handleThemeChange = useCallback(
         (newTheme: ThemeMode) => {
             setTheme(newTheme);
@@ -200,13 +240,19 @@ export default function App({
         });
     }, []);
 
-    // Sync theme, language, and hidden presets if modified from the tray window.
+    // Sync appearance, language, and hidden presets if modified from the tray window.
     useEffect(() => {
         const onStorage = (e: StorageEvent) => {
-            if (e.key === 'dnss.theme' && !externalTheme) {
+            if (e.key === THEME_KEY && !externalTheme) {
                 setTheme(loadTheme());
             } else if (e.key === 'dnss.lang' && !externalLang) {
                 setLang(loadLang());
+            } else if (e.key === FONT_KEY) {
+                setFontFamily(loadFontFamily());
+            } else if (e.key === FONT_SIZE_KEY) {
+                setFontSize(loadFontSize());
+            } else if (e.key === ACCENT_KEY) {
+                setAccent(loadAccent());
             } else if (e.key === HIDDEN_PRESETS_KEY) {
                 setHiddenPresets(loadHiddenPresets());
             }
@@ -560,16 +606,16 @@ export default function App({
                             className="size-7 shrink-0 select-none"
                             draggable={false}
                         />
-                        <h2 className="m-0 text-[15px] font-semibold text-[var(--dnss-ink-1)]">
+                        <h2 className="m-0 text-[length:var(--dnss-fs-md)] font-semibold text-[var(--dnss-ink-1)]">
                             {t('nodesktop.title')}
                         </h2>
                     </div>
-                    <p className="mt-2.5 text-[13px] leading-relaxed text-[var(--dnss-ink-2)]">
+                    <p className="mt-2.5 text-[length:var(--dnss-fs-sm)] leading-relaxed text-[var(--dnss-ink-2)]">
                         {t('nodesktop.body')}
                     </p>
-                    <p className="mt-2 text-[12px] leading-relaxed text-[var(--dnss-ink-3)]">
+                    <p className="mt-2 text-[length:var(--dnss-fs-xs)] leading-relaxed text-[var(--dnss-ink-3)]">
                         {t('nodesktop.devPrefix')}
-                        <code className="rounded bg-[var(--dnss-raised)] px-1.5 py-0.5 font-mono text-[11px] text-[var(--dnss-ink-1)]">
+                        <code className="rounded bg-[var(--dnss-raised)] px-1.5 py-0.5 font-mono text-[length:var(--dnss-fs-2xs)] text-[var(--dnss-ink-1)]">
                             npm run dev
                         </code>
                         {t('nodesktop.devSuffix')}
@@ -598,189 +644,228 @@ export default function App({
     ];
 
     return (
-        <div className="@container flex h-full w-full overflow-hidden bg-[var(--dnss-canvas)] text-[var(--dnss-ink-1)]">
-            {/* Full-height Sidebar Navigation Rail */}
-            <aside className="flex h-full w-[196px] shrink-0 select-none flex-col border-e border-[var(--dnss-border)] bg-[var(--dnss-sidebar)] @max-[680px]:w-[148px]">
-                {/* Brand Lockup */}
-                <div className="flex items-center gap-2.5 px-4 pt-4 pb-3">
-                    <img
-                        src={appIcon}
-                        alt="DNSS"
-                        className="size-7 shrink-0 select-none"
-                        draggable={false}
-                    />
-                    <div className="min-w-0">
-                        <div className="truncate text-[14px] font-bold leading-tight text-[var(--dnss-ink-1)]">
-                            DNSS
-                        </div>
-                        <div className="truncate text-[11px] leading-tight text-[var(--dnss-ink-3)]">
-                            {t('app.tagline')}
+        <div className="@container flex h-full w-full flex-col overflow-hidden bg-[var(--dnss-canvas)] text-[var(--dnss-ink-1)]">
+            {!isEmbeddedDemo && (
+                <TitleBar
+                    title={t('window.title')}
+                    minimizeLabel={t('window.minimize')}
+                    maximizeLabel={t('window.maximize')}
+                    restoreLabel={t('window.restore')}
+                    closeLabel={t('window.close')}
+                />
+            )}
+
+            <div className="flex min-h-0 flex-1 overflow-hidden">
+                {/* Full-height Sidebar Navigation Rail */}
+                <aside className="flex h-full w-[196px] shrink-0 select-none flex-col border-e border-[var(--dnss-border)] bg-[var(--dnss-sidebar)] @max-[680px]:w-[148px]">
+                    {/* Brand Lockup */}
+                    <div className="flex items-center gap-2.5 px-4 pt-4 pb-3">
+                        <img
+                            src={appIcon}
+                            alt="DNSS"
+                            className="size-7 shrink-0 select-none"
+                            draggable={false}
+                        />
+                        <div className="min-w-0">
+                            <div className="truncate text-[length:var(--dnss-fs-base)] font-bold leading-tight text-[var(--dnss-ink-1)]">
+                                DNSS
+                            </div>
+                            <div className="truncate text-[length:var(--dnss-fs-2xs)] leading-tight text-[var(--dnss-ink-3)]">
+                                {t('app.tagline')}
+                            </div>
                         </div>
                     </div>
-                </div>
 
-                {/* Primary Navigation */}
-                <nav className="flex flex-1 flex-col gap-1 px-2.5 py-2">
-                    {navItems.map((item) => {
-                        const Icon = item.icon;
-                        const active = page === item.id;
-                        return (
+                    {/* Primary Navigation */}
+                    <nav className="flex flex-1 flex-col gap-1 px-2.5 py-2">
+                        {navItems.map((item) => {
+                            const Icon = item.icon;
+                            const active = page === item.id;
+                            return (
+                                <button
+                                    key={item.id}
+                                    type="button"
+                                    onClick={() => setPage(item.id)}
+                                    className={`flex h-9 w-full items-center gap-2.5 rounded-xl px-2.5 text-[length:var(--dnss-fs-sm)] font-medium ${
+                                        active
+                                            ? 'border border-[var(--dnss-border-strong)] bg-[var(--dnss-nav-active)] text-[var(--dnss-ink-1)] shadow-xs'
+                                            : 'border border-transparent text-[var(--dnss-ink-2)] hover:bg-[var(--dnss-hover)] hover:text-[var(--dnss-ink-1)]'
+                                    }`}
+                                >
+                                    <Icon
+                                        className={`size-4 shrink-0 ${
+                                            active
+                                                ? 'text-[var(--dnss-accent)]'
+                                                : 'text-[var(--dnss-ink-3)]'
+                                        }`}
+                                    />
+                                    <span className="truncate">
+                                        {item.label}
+                                    </span>
+                                </button>
+                            );
+                        })}
+                    </nav>
+
+                    {/* Compact Status & Utility Footer */}
+                    <div className="border-t border-[var(--dnss-border)] p-2.5">
+                        <div
+                            className={`mb-2 flex items-center gap-2 rounded-xl border px-2.5 py-1.5 transition-colors ${
+                                isCustomDnsActive
+                                    ? 'border-[var(--dnss-accent)]/25 bg-[var(--dnss-accent-soft)] text-[var(--dnss-accent-text)]'
+                                    : 'border-[var(--dnss-border)] bg-[var(--dnss-surface)] text-[var(--dnss-ink-2)]'
+                            }`}
+                        >
+                            <span
+                                className={`size-2 shrink-0 rounded-full ${
+                                    isCustomDnsActive
+                                        ? 'bg-[var(--dnss-accent)]'
+                                        : 'bg-[var(--dnss-ink-3)]'
+                                }`}
+                            />
+                            <span className="truncate text-[length:var(--dnss-fs-xs)] font-semibold">
+                                {activeProviderName}
+                            </span>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-1">
                             <button
-                                key={item.id}
                                 type="button"
-                                onClick={() => setPage(item.id)}
-                                className={`flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13px] font-medium transition-colors ${
-                                    active
-                                        ? 'bg-[var(--dnss-surface)] text-[var(--dnss-ink-1)] shadow-xs'
-                                        : 'text-[var(--dnss-ink-2)] hover:bg-[var(--dnss-hover)] hover:text-[var(--dnss-ink-1)]'
+                                title={t('app.toggleTheme')}
+                                onClick={() => {
+                                    const currentResolved =
+                                        getResolvedTheme(theme);
+                                    handleThemeChange(
+                                        currentResolved === 'dark'
+                                            ? 'light'
+                                            : 'dark'
+                                    );
+                                }}
+                                className="inline-flex h-7 items-center gap-1.5 rounded-lg px-2 text-[length:var(--dnss-fs-xs)] text-[var(--dnss-ink-2)] hover:bg-[var(--dnss-hover)] hover:text-[var(--dnss-ink-1)]"
+                            >
+                                <ThemeIcon
+                                    mode={theme}
+                                    className="size-4 shrink-0"
+                                />
+                            </button>
+
+                            <button
+                                type="button"
+                                title={t('app.toggleLang')}
+                                onClick={() =>
+                                    handleLangChange(
+                                        lang === 'en' ? 'fa' : 'en'
+                                    )
+                                }
+                                className="inline-flex h-7 items-center rounded-lg px-2 text-[length:var(--dnss-fs-2xs)] font-semibold uppercase text-[var(--dnss-ink-2)] hover:bg-[var(--dnss-hover)] hover:text-[var(--dnss-ink-1)]"
+                            >
+                                {lang === 'en' ? 'FA' : 'EN'}
+                            </button>
+                        </div>
+                    </div>
+                </aside>
+
+                {/* Main Content Column */}
+                <div className="relative flex min-w-0 flex-1 flex-col">
+                    {(busy || refreshing) && (
+                        <div
+                            className="loading-bar absolute inset-x-0 top-0 z-20"
+                            role="status"
+                            aria-label={t('app.working')}
+                        />
+                    )}
+
+                    <main className="min-h-0 flex-1 overflow-y-auto px-6 py-5 @max-[680px]:px-3.5 @max-[680px]:py-3.5">
+                        <div
+                            hidden={page !== 'home'}
+                            className={page === 'home' ? 'page-fade' : ''}
+                        >
+                            <HomePage
+                                i18n={i18n}
+                                activeAdapter={activeAdapter}
+                                activeDns={activeDns}
+                                isCustomDnsActive={isCustomDnsActive}
+                                rememberedServers={rememberedServers}
+                                adapters={adapters}
+                                busy={busy}
+                                toggleBusy={
+                                    busyOp?.kind === 'apply' &&
+                                    busyOp.id === 'home-circle'
+                                }
+                                flushBusy={busyOp?.kind === 'flush'}
+                                refreshing={refreshing}
+                                onToggleDns={handleToggleHomeDns}
+                                onFlushDns={handleFlushDns}
+                                refreshStatus={refreshStatus}
+                                onOpenServers={() => setPage('servers')}
+                                dnsNameLookup={dnsNameLookup}
+                            />
+                        </div>
+                        <div
+                            hidden={page !== 'servers'}
+                            className={page === 'servers' ? 'page-fade' : ''}
+                        >
+                            <ServersPage
+                                i18n={i18n}
+                                adapters={adapters}
+                                activeAdapter={activeAdapter}
+                                activeAdapterName={activeAdapter?.name ?? null}
+                                activeDns={activeDns}
+                                configs={configs}
+                                persistConfigs={persistConfigs}
+                                hiddenPresets={hiddenPresets}
+                                onHidePreset={hidePreset}
+                                busy={busy}
+                                applyBusyId={
+                                    busyOp?.kind === 'apply' ? busyOp.id : null
+                                }
+                                onApply={handleApplyServers}
+                                showToast={showToast}
+                            />
+                        </div>
+                        <div
+                            hidden={page !== 'settings'}
+                            className={page === 'settings' ? 'page-fade' : ''}
+                        >
+                            <SettingsPage
+                                i18n={i18n}
+                                onLangChange={handleLangChange}
+                                theme={theme}
+                                onThemeChange={handleThemeChange}
+                                fontFamily={fontFamily}
+                                onFontFamilyChange={setFontFamily}
+                                fontSize={fontSize}
+                                onFontSizeChange={setFontSize}
+                                accent={accent}
+                                onAccentChange={setAccent}
+                                busy={busy}
+                                resetBusy={busyOp?.kind === 'reset-all'}
+                                onResetAll={handleResetAll}
+                                hiddenPresets={hiddenPresets}
+                                onRestorePresets={restorePresets}
+                            />
+                        </div>
+                    </main>
+
+                    {toastMessage && (
+                        <div className="pointer-events-none absolute inset-x-0 bottom-4 z-40 flex justify-center px-4">
+                            <div
+                                className={`dnss-popover toast-pop pointer-events-auto flex items-center gap-2 rounded-xl px-3.5 py-2 text-[length:var(--dnss-fs-sm)] font-medium ${
+                                    toastIsError
+                                        ? 'border-[var(--dnss-error)]/40 text-[var(--dnss-error)]'
+                                        : 'border-[var(--dnss-accent)]/40 text-[var(--dnss-ink-1)]'
                                 }`}
                             >
-                                <Icon
-                                    className={`size-4 shrink-0 ${
-                                        active
-                                            ? 'text-[var(--dnss-accent)]'
-                                            : 'text-[var(--dnss-ink-3)]'
-                                    }`}
-                                />
-                                <span className="truncate">{item.label}</span>
-                            </button>
-                        );
-                    })}
-                </nav>
-
-                {/* Compact Status & Utility Footer */}
-                <div className="border-t border-[var(--dnss-border)] p-2.5">
-                    <div className="mb-2 flex items-center gap-2 rounded-lg bg-[var(--dnss-surface)] px-2.5 py-1.5">
-                        <span
-                            className={`size-2 shrink-0 rounded-full ${
-                                isCustomDnsActive
-                                    ? 'bg-[var(--dnss-accent)]'
-                                    : 'bg-[var(--dnss-ink-3)]'
-                            }`}
-                        />
-                        <span className="truncate text-[12px] font-medium text-[var(--dnss-ink-1)]">
-                            {activeProviderName}
-                        </span>
-                    </div>
-
-                    <div className="flex items-center justify-between gap-1">
-                        <button
-                            type="button"
-                            title={t('app.toggleTheme')}
-                            onClick={() => {
-                                const currentResolved = getResolvedTheme(theme);
-                                handleThemeChange(
-                                    currentResolved === 'dark'
-                                        ? 'light'
-                                        : 'dark'
-                                );
-                            }}
-                            className="inline-flex h-7 items-center gap-1.5 rounded-lg px-2 text-[12px] text-[var(--dnss-ink-2)] transition-colors hover:bg-[var(--dnss-hover)] hover:text-[var(--dnss-ink-1)]"
-                        >
-                            <ThemeIcon
-                                mode={theme}
-                                className="size-4 shrink-0"
-                            />
-                        </button>
-
-                        <button
-                            type="button"
-                            title={t('app.toggleLang')}
-                            onClick={() =>
-                                handleLangChange(lang === 'en' ? 'fa' : 'en')
-                            }
-                            className="inline-flex h-7 items-center rounded-lg px-2 text-[11px] font-semibold uppercase text-[var(--dnss-ink-2)] transition-colors hover:bg-[var(--dnss-hover)] hover:text-[var(--dnss-ink-1)]"
-                        >
-                            {lang === 'en' ? 'FA' : 'EN'}
-                        </button>
-                    </div>
-                </div>
-            </aside>
-
-            {/* Main Content Column */}
-            <div className="relative flex min-w-0 flex-1 flex-col">
-                {(busy || refreshing) && (
-                    <div
-                        className="loading-bar absolute inset-x-0 top-0 z-20"
-                        role="status"
-                        aria-label={t('app.working')}
-                    />
-                )}
-
-                <main className="min-h-0 flex-1 overflow-y-auto px-6 py-5 @max-[680px]:px-3.5 @max-[680px]:py-3.5">
-                    <div hidden={page !== 'home'}>
-                        <HomePage
-                            i18n={i18n}
-                            activeAdapter={activeAdapter}
-                            activeDns={activeDns}
-                            isCustomDnsActive={isCustomDnsActive}
-                            rememberedServers={rememberedServers}
-                            adapters={adapters}
-                            busy={busy}
-                            toggleBusy={
-                                busyOp?.kind === 'apply' &&
-                                busyOp.id === 'home-circle'
-                            }
-                            flushBusy={busyOp?.kind === 'flush'}
-                            refreshing={refreshing}
-                            onToggleDns={handleToggleHomeDns}
-                            onFlushDns={handleFlushDns}
-                            refreshStatus={refreshStatus}
-                            onOpenServers={() => setPage('servers')}
-                            dnsNameLookup={dnsNameLookup}
-                        />
-                    </div>
-                    <div hidden={page !== 'servers'}>
-                        <ServersPage
-                            i18n={i18n}
-                            adapters={adapters}
-                            activeAdapterName={activeAdapter?.name ?? null}
-                            activeDns={activeDns}
-                            configs={configs}
-                            persistConfigs={persistConfigs}
-                            hiddenPresets={hiddenPresets}
-                            onHidePreset={hidePreset}
-                            busy={busy}
-                            applyBusyId={
-                                busyOp?.kind === 'apply' ? busyOp.id : null
-                            }
-                            onApply={handleApplyServers}
-                            showToast={showToast}
-                        />
-                    </div>
-                    <div hidden={page !== 'settings'}>
-                        <SettingsPage
-                            i18n={i18n}
-                            onLangChange={handleLangChange}
-                            theme={theme}
-                            onThemeChange={handleThemeChange}
-                            busy={busy}
-                            resetBusy={busyOp?.kind === 'reset-all'}
-                            onResetAll={handleResetAll}
-                            hiddenPresets={hiddenPresets}
-                            onRestorePresets={restorePresets}
-                        />
-                    </div>
-                </main>
-
-                {toastMessage && (
-                    <div className="pointer-events-none absolute inset-x-0 bottom-4 z-40 flex justify-center px-4">
-                        <div
-                            className={`dnss-popover pointer-events-auto flex items-center gap-2 rounded-xl px-3.5 py-2 text-[13px] font-medium ${
-                                toastIsError
-                                    ? 'border-[var(--dnss-error)]/40 text-[var(--dnss-error)]'
-                                    : 'border-[var(--dnss-accent)]/40 text-[var(--dnss-ink-1)]'
-                            }`}
-                        >
-                            {toastIsError ? (
-                                <ExclamationTriangleIcon className="size-4 shrink-0 text-[var(--dnss-error)]" />
-                            ) : (
-                                <CheckCircleIcon className="size-4 shrink-0 text-[var(--dnss-accent)]" />
-                            )}
-                            <span>{toastMessage}</span>
+                                {toastIsError ? (
+                                    <ExclamationTriangleIcon className="size-4 shrink-0 text-[var(--dnss-error)]" />
+                                ) : (
+                                    <CheckCircleIcon className="size-4 shrink-0 text-[var(--dnss-accent)]" />
+                                )}
+                                <span>{toastMessage}</span>
+                            </div>
                         </div>
-                    </div>
-                )}
+                    )}
+                </div>
             </div>
         </div>
     );

@@ -171,6 +171,18 @@ export function installMockTauriIpc(): void {
                 return null;
             }
 
+            case 'plugin:window|is_maximized': {
+                return false;
+            }
+
+            case 'plugin:window|minimize':
+            case 'plugin:window|toggle_maximize':
+            case 'plugin:window|close':
+            case 'plugin:window|hide':
+            case 'plugin:window|start_dragging': {
+                return null;
+            }
+
             default: {
                 throw new Error(`Unknown command: ${cmd}`);
             }

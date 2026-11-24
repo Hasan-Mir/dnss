@@ -14,11 +14,12 @@
             {
                 "label": "main",
                 "title": "DNSS - DNS Switcher",
-                "width": 900,
-                "height": 640,
+                "width": 920,
+                "height": 660,
                 "minWidth": 720,
                 "minHeight": 520,
                 "resizable": true,
+                "decorations": false,
                 "center": true,
                 "backgroundColor": "#0f1115"
             },

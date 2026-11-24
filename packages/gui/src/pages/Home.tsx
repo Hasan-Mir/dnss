@@ -3,6 +3,7 @@ import {
     ArrowPathIcon,
     ChevronDownIcon,
     CircleStackIcon,
+    PowerIcon,
     ServerStackIcon,
     ShieldCheckIcon,
     SignalIcon,
@@ -66,12 +67,12 @@ function AdapterRow({
                     />
                     <span
                         title={adapter.name}
-                        className="truncate text-[13px] font-medium text-[var(--dnss-ink-1)]"
+                        className="truncate text-[length:var(--dnss-fs-sm)] font-medium text-[var(--dnss-ink-1)]"
                     >
                         {adapter.name}
                     </span>
                     <span
-                        className={`shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-medium ${
+                        className={`shrink-0 rounded-md px-1.5 py-0.5 text-[length:var(--dnss-fs-2xs)] font-medium ${
                             adapter.dns_static
                                 ? 'bg-[var(--dnss-accent-soft)] text-[var(--dnss-accent-text)]'
                                 : 'bg-[var(--dnss-raised)] text-[var(--dnss-ink-3)]'
@@ -91,7 +92,7 @@ function AdapterRow({
                 {adapter.kind && (
                     <div
                         title={adapter.kind}
-                        className="mt-0.5 truncate ps-4 text-[11px] text-[var(--dnss-ink-3)]"
+                        className="mt-0.5 truncate ps-4 text-[length:var(--dnss-fs-2xs)] text-[var(--dnss-ink-3)]"
                     >
                         {adapter.kind}
                     </div>
@@ -100,7 +101,7 @@ function AdapterRow({
 
             <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
                 {adapter.dns_servers.length === 0 ? (
-                    <span className="text-[12px] text-[var(--dnss-ink-3)]">
+                    <span className="text-[length:var(--dnss-fs-xs)] text-[var(--dnss-ink-3)]">
                         {i18n.t('common.na')}
                     </span>
                 ) : (
@@ -110,13 +111,13 @@ function AdapterRow({
                             <span
                                 key={ip}
                                 dir="ltr"
-                                className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--dnss-raised)] px-2 py-1 text-[12px] text-[var(--dnss-ink-1)]"
+                                className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--dnss-raised)] px-2 py-1 text-[length:var(--dnss-fs-xs)] text-[var(--dnss-ink-1)]"
                             >
                                 <span className="font-mono tabular-nums">
                                     {ip}
                                 </span>
                                 {provider && (
-                                    <span className="font-sans text-[11px] text-[var(--dnss-ink-3)]">
+                                    <span className="font-sans text-[length:var(--dnss-fs-2xs)] text-[var(--dnss-ink-3)]">
                                         {provider}
                                     </span>
                                 )}
@@ -207,11 +208,11 @@ export default function HomePage({
 
                         <div className="min-w-0">
                             <div className="flex flex-wrap items-center gap-2">
-                                <h2 className="m-0 text-[18px] font-semibold leading-snug text-[var(--dnss-ink-1)]">
+                                <h2 className="m-0 text-[length:var(--dnss-fs-lg)] font-semibold leading-snug text-[var(--dnss-ink-1)]">
                                     {statusHeadline}
                                 </h2>
                                 <span
-                                    className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                                    className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[length:var(--dnss-fs-2xs)] font-medium ${
                                         isCustomDnsActive
                                             ? 'bg-[var(--dnss-accent-soft)] text-[var(--dnss-accent-text)]'
                                             : 'bg-[var(--dnss-raised)] text-[var(--dnss-ink-2)]'
@@ -230,13 +231,13 @@ export default function HomePage({
                                 </span>
                             </div>
 
-                            <p className="mt-1 text-[13px] leading-snug text-[var(--dnss-ink-2)]">
+                            <p className="mt-1 text-[length:var(--dnss-fs-sm)] leading-snug text-[var(--dnss-ink-2)]">
                                 {statusSubtitle}
                             </p>
                         </div>
                     </div>
 
-                    {/* Tactile WARP-style Power Switch */}
+                    {/* Tactile Power Switch with dark circular knob + power icon */}
                     <button
                         type="button"
                         role="switch"
@@ -249,7 +250,15 @@ export default function HomePage({
                         title={statusSubtitle}
                         disabled={busy || !canToggle}
                         onClick={onToggleDns}
-                        className={`relative inline-flex h-8 w-14 shrink-0 items-center rounded-full p-1 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--dnss-accent)] ${
+                        style={
+                            isCustomDnsActive
+                                ? {
+                                      boxShadow:
+                                          '0 0 20px var(--dnss-accent-glow)',
+                                  }
+                                : undefined
+                        }
+                        className={`relative inline-flex h-9 w-16 shrink-0 items-center rounded-full p-1 transition-all duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--dnss-accent)] active:scale-95 ${
                             isCustomDnsActive
                                 ? 'bg-[var(--dnss-accent)]'
                                 : 'bg-[var(--dnss-border-strong)]'
@@ -260,14 +269,26 @@ export default function HomePage({
                         }`}
                     >
                         <span
-                            className={`size-6 rounded-full bg-white shadow-xs transition-transform duration-150 ${
+                            className={`grid size-7 place-items-center rounded-full bg-[#0d1117] shadow-sm transition-transform duration-200 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${
                                 isCustomDnsActive
                                     ? dir === 'rtl'
-                                        ? '-translate-x-6'
-                                        : 'translate-x-6'
+                                        ? '-translate-x-7'
+                                        : 'translate-x-7'
                                     : 'translate-x-0'
                             }`}
-                        />
+                        >
+                            {toggleBusy ? (
+                                <span className="loading loading-spinner loading-xs text-[var(--dnss-accent)]" />
+                            ) : (
+                                <PowerIcon
+                                    className={`size-4 shrink-0 stroke-[2.2] transition-colors duration-200 ${
+                                        isCustomDnsActive
+                                            ? 'text-[var(--dnss-accent)]'
+                                            : 'text-[#94a3b8]'
+                                    }`}
+                                />
+                            )}
+                        </span>
                     </button>
                 </div>
 
@@ -277,14 +298,14 @@ export default function HomePage({
                         <span className="size-2 shrink-0 rounded-full bg-[var(--dnss-accent)]" />
                         <span
                             dir="ltr"
-                            className="truncate text-[13px] font-medium text-[var(--dnss-ink-1)]"
+                            className="truncate text-[length:var(--dnss-fs-sm)] font-medium text-[var(--dnss-ink-1)]"
                         >
                             {activeAdapter
                                 ? activeAdapter.name
                                 : t('home.noActiveAdapter')}
                         </span>
                         {activeAdapter?.kind && (
-                            <span className="shrink-0 rounded-md bg-[var(--dnss-surface)] px-1.5 py-0.5 text-[11px] text-[var(--dnss-ink-3)]">
+                            <span className="shrink-0 rounded-md bg-[var(--dnss-surface)] px-1.5 py-0.5 text-[length:var(--dnss-fs-2xs)] text-[var(--dnss-ink-3)]">
                                 {activeAdapter.kind}
                             </span>
                         )}
@@ -296,13 +317,13 @@ export default function HomePage({
                                 <span
                                     key={ip}
                                     dir="ltr"
-                                    className="rounded-lg bg-[var(--dnss-surface)] px-2.5 py-1 font-mono text-[12px] font-medium tabular-nums text-[var(--dnss-ink-1)]"
+                                    className="rounded-lg bg-[var(--dnss-surface)] px-2.5 py-1 font-mono text-[length:var(--dnss-fs-xs)] font-medium tabular-nums text-[var(--dnss-ink-1)]"
                                 >
                                     {ip}
                                 </span>
                             ))
                         ) : (
-                            <span className="text-[12px] text-[var(--dnss-ink-3)]">
+                            <span className="text-[length:var(--dnss-fs-xs)] text-[var(--dnss-ink-3)]">
                                 {t('home.automatic')}
                             </span>
                         )}
@@ -316,7 +337,7 @@ export default function HomePage({
                             type="button"
                             disabled={busy}
                             onClick={onToggleDns}
-                            className={`inline-flex h-9 items-center gap-2 rounded-lg px-3.5 text-[13px] font-medium transition-colors ${
+                            className={`inline-flex h-9 items-center gap-2 rounded-lg px-3.5 text-[length:var(--dnss-fs-sm)] font-medium ${
                                 isCustomDnsActive
                                     ? 'bg-[var(--dnss-raised)] text-[var(--dnss-ink-1)] hover:bg-[var(--dnss-hover)]'
                                     : 'bg-[var(--dnss-accent)] text-[var(--dnss-accent-ink)] hover:bg-[var(--dnss-accent-hover)]'
@@ -333,7 +354,7 @@ export default function HomePage({
                         <button
                             type="button"
                             onClick={onOpenServers}
-                            className="inline-flex h-9 items-center gap-2 rounded-lg bg-[var(--dnss-accent)] px-3.5 text-[13px] font-medium text-[var(--dnss-accent-ink)] transition-colors hover:bg-[var(--dnss-accent-hover)]"
+                            className="inline-flex h-9 items-center gap-2 rounded-lg bg-[var(--dnss-accent)] px-3.5 text-[length:var(--dnss-fs-sm)] font-medium text-[var(--dnss-accent-ink)] hover:bg-[var(--dnss-accent-hover)]"
                         >
                             <ServerStackIcon className="size-4 shrink-0" />
                             {t('home.chooseServer')}
@@ -344,7 +365,7 @@ export default function HomePage({
                         type="button"
                         disabled={busy}
                         onClick={onFlushDns}
-                        className="inline-flex h-9 items-center gap-2 rounded-lg bg-[var(--dnss-raised)] px-3 text-[13px] font-medium text-[var(--dnss-ink-1)] transition-colors hover:bg-[var(--dnss-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+                        className="inline-flex h-9 items-center gap-2 rounded-lg bg-[var(--dnss-raised)] px-3 text-[length:var(--dnss-fs-sm)] font-medium text-[var(--dnss-ink-1)] hover:bg-[var(--dnss-hover)] disabled:cursor-not-allowed disabled:opacity-50"
                     >
                         {flushBusy ? (
                             <span className="loading loading-spinner loading-xs" />
@@ -358,7 +379,7 @@ export default function HomePage({
                         type="button"
                         disabled={busy || refreshing}
                         onClick={refreshStatus}
-                        className="ms-auto inline-flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-[12px] font-medium text-[var(--dnss-ink-2)] transition-colors hover:bg-[var(--dnss-hover)] hover:text-[var(--dnss-ink-1)] disabled:cursor-not-allowed disabled:opacity-50"
+                        className="ms-auto inline-flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-[length:var(--dnss-fs-xs)] font-medium text-[var(--dnss-ink-2)] hover:bg-[var(--dnss-hover)] hover:text-[var(--dnss-ink-1)] disabled:cursor-not-allowed disabled:opacity-50"
                     >
                         <ArrowPathIcon
                             className={`size-4 shrink-0 ${
@@ -374,12 +395,12 @@ export default function HomePage({
             <section className="dnss-card overflow-hidden rounded-2xl">
                 <button
                     type="button"
-                    className="flex w-full cursor-pointer select-none items-center gap-2 px-4 py-3 text-start transition-colors hover:bg-[var(--dnss-hover)]"
+                    className="dnss-no-press flex w-full cursor-pointer select-none items-center gap-2 px-4 py-3 text-start transition-colors hover:bg-[var(--dnss-hover)]"
                     onClick={() => setShowAdapters((v) => !v)}
                     aria-expanded={showAdapters}
                 >
                     <ChevronDownIcon
-                        className={`size-4 shrink-0 text-[var(--dnss-ink-3)] transition-transform duration-150 ${
+                        className={`size-4 shrink-0 text-[var(--dnss-ink-3)] transition-transform duration-200 ease-[cubic-bezier(0.16,1,0.3,1)] ${
                             showAdapters
                                 ? ''
                                 : dir === 'rtl'
@@ -388,16 +409,16 @@ export default function HomePage({
                         }`}
                     />
                     <ServerStackIcon className="size-4 shrink-0 text-[var(--dnss-ink-2)]" />
-                    <span className="text-[13px] font-semibold text-[var(--dnss-ink-1)]">
+                    <span className="text-[length:var(--dnss-fs-sm)] font-semibold text-[var(--dnss-ink-1)]">
                         {t('home.inUse')}
                     </span>
-                    <span className="rounded-md bg-[var(--dnss-raised)] px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-[var(--dnss-ink-2)]">
+                    <span className="rounded-md bg-[var(--dnss-raised)] px-1.5 py-0.5 text-[length:var(--dnss-fs-2xs)] font-medium tabular-nums text-[var(--dnss-ink-2)]">
                         {num(adapters.length)}
                     </span>
                 </button>
 
                 <div
-                    className={`grid overflow-hidden transition-[grid-template-rows] duration-150 ease-out ${
+                    className={`grid overflow-hidden transition-[grid-template-rows] duration-220 ease-[cubic-bezier(0.16,1,0.3,1)] ${
                         showAdapters ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
                     }`}
                 >
@@ -413,7 +434,7 @@ export default function HomePage({
                             ))}
 
                             {adapters.length === 0 && (
-                                <li className="px-4 py-4 text-center text-[12px] text-[var(--dnss-ink-3)]">
+                                <li className="px-4 py-4 text-center text-[length:var(--dnss-fs-xs)] text-[var(--dnss-ink-3)]">
                                     {t('home.noAdapters')}
                                 </li>
                             )}

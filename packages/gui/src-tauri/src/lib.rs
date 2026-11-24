@@ -376,8 +376,12 @@ async fn benchmark_dns(
     if net::parse_ipv4(&server).is_none() {
         return Err(format!("Invalid DNS server address: {}", server));
     }
-    let (hostname, port) =
-        parse_benchmark_target(target.as_deref().unwrap_or("https://www.cloudflare.com"))?;
+    let effective_target = target
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("https://www.cloudflare.com");
+    let (hostname, port) = parse_benchmark_target(effective_target)?;
 
     // Run on a blocking thread pool: this performs blocking network I/O and
     // must not stall the Tauri IPC/runtime threads.
@@ -474,7 +478,7 @@ pub fn run() {
                     let _ = window.hide();
                 }
             }
-            WindowEvent::CloseRequested { api, .. } if window.label() == "main" => {
+            WindowEvent::CloseRequested { api, .. } if matches!(window.label(), "main" | "tray") => {
                 // Keep DNSS running in the System Tray instead of exiting.
                 api.prevent_close();
                 let _ = window.hide();

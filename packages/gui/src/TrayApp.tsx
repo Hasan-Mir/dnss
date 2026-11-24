@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
+import { useAutoAnimate } from '@formkit/auto-animate/react';
 import {
     ArrowPathIcon,
     ArrowTopRightOnSquareIcon,
     BoltIcon,
     CheckCircleIcon,
+    CheckIcon,
     CircleStackIcon,
     ComputerDesktopIcon,
     ExclamationTriangleIcon,
@@ -15,6 +17,7 @@ import {
     ShieldCheckIcon,
     SignalIcon,
     SunIcon,
+    XMarkIcon,
 } from '@heroicons/react/24/outline';
 import { DNS_PRESETS } from '@seymi/dnss-core/presets';
 import { validateIPv4 } from '@seymi/dnss-core/validate';
@@ -25,9 +28,20 @@ import {
     type DnsConfig,
     type DnsStatus,
 } from './api';
+import CustomSelect, { type SelectOption } from './components/CustomSelect';
 import {
+    ACCENT_KEY,
+    FONT_KEY,
+    FONT_SIZE_KEY,
+    THEME_KEY,
+    applyAccent,
+    applyFontFamily,
+    applyFontSize,
     applyTheme,
     getResolvedTheme,
+    loadAccent,
+    loadFontFamily,
+    loadFontSize,
     loadTheme,
     saveTheme,
     watchSystemTheme,
@@ -39,6 +53,8 @@ import appIcon from './assets/app-icon.png';
 const HIDDEN_PRESETS_KEY = 'dnss.hiddenPresets';
 const DEFAULT_BENCHMARK_TARGET = 'https://www.cloudflare.com';
 const MIN_BUSY_MS = 500;
+const VPN_ADAPTER_RE =
+    /tun|singbox|sing-box|clash|mihomo|v2ray|xray|wireguard|openvpn|warp|wintun|tailscale|nekoray/i;
 
 type BusyOp =
     | { kind: 'apply'; id: string }
@@ -49,6 +65,9 @@ type BusyOp =
 interface PingState {
     status: 'testing' | 'ok' | 'timeout' | 'error';
     latencyMs?: number;
+    resolveMs?: number;
+    connectMs?: number;
+    address?: string;
     error?: string;
 }
 
@@ -85,6 +104,11 @@ const withMinDuration = async <T,>(
 };
 
 export default function TrayApp() {
+    const [trayListRef] = useAutoAnimate<HTMLUListElement>({
+        duration: 220,
+        easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+    });
+
     const [theme, setTheme] = useState<ThemeMode>(loadTheme);
     const [lang, setLang] = useState<Lang>(loadLang);
     const [adapters, setAdapters] = useState<Adapter[]>([]);
@@ -97,6 +121,16 @@ export default function TrayApp() {
     const [targetMode, setTargetMode] = useState<string>('__active__');
     const [search, setSearch] = useState('');
     const [pings, setPings] = useState<Record<string, PingState>>({});
+    const [benchmarking, setBenchmarking] = useState(false);
+    const [sortByLatency, setSortByLatency] = useState(false);
+
+    // Inline "+ Custom" server drawer inside the tray popover
+    const [customOpen, setCustomOpen] = useState(false);
+    const [customName, setCustomName] = useState('');
+    const [customPrimary, setCustomPrimary] = useState('');
+    const [customAlt, setCustomAlt] = useState('');
+    const [savingCustom, setSavingCustom] = useState(false);
+
     const [busyOp, setBusyOp] = useState<BusyOp>(null);
     const [refreshing, setRefreshing] = useState(false);
     const [toast, setToast] = useState<{
@@ -104,6 +138,7 @@ export default function TrayApp() {
         kind: 'success' | 'error';
     } | null>(null);
     const toastTimer = useRef<number | null>(null);
+    const benchRunIdRef = useRef(0);
 
     const i18n = useMemo(() => createI18n(lang), [lang]);
     const { t, num } = i18n;
@@ -126,13 +161,19 @@ export default function TrayApp() {
         saveLang(lang);
     }, [lang]);
 
-    // Sync localStorage preferences changed from the main window.
+    // Sync all appearance & preference changes from the main window.
     useEffect(() => {
         const onStorage = (e: StorageEvent) => {
-            if (e.key === 'dnss.theme') {
+            if (e.key === THEME_KEY) {
                 setTheme(loadTheme());
             } else if (e.key === 'dnss.lang') {
                 setLang(loadLang());
+            } else if (e.key === FONT_KEY) {
+                applyFontFamily(loadFontFamily());
+            } else if (e.key === FONT_SIZE_KEY) {
+                applyFontSize(loadFontSize());
+            } else if (e.key === ACCENT_KEY) {
+                applyAccent(loadAccent());
             } else if (e.key === HIDDEN_PRESETS_KEY) {
                 setHiddenPresets(loadHiddenPresets());
             }
@@ -141,16 +182,21 @@ export default function TrayApp() {
         return () => window.removeEventListener('storage', onStorage);
     }, []);
 
-    // Escape closes the tray popover.
+    // Escape closes inline custom form first, otherwise hides the tray popover.
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
-            if (e.key === 'Escape' && isDesktopApp()) {
+            if (e.key !== 'Escape') return;
+            if (customOpen) {
+                setCustomOpen(false);
+                return;
+            }
+            if (isDesktopApp()) {
                 void api.hideTrayWindow();
             }
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
-    }, []);
+    }, [customOpen]);
 
     const showToast = useCallback(
         (message: string, kind: 'success' | 'error' = 'success') => {
@@ -161,7 +207,7 @@ export default function TrayApp() {
             toastTimer.current = window.setTimeout(() => {
                 toastTimer.current = null;
                 setToast(null);
-            }, 3000);
+            }, 3400);
         },
         []
     );
@@ -237,6 +283,9 @@ export default function TrayApp() {
 
         const onFocus = () => {
             setHiddenPresets(loadHiddenPresets());
+            applyFontFamily(loadFontFamily());
+            applyFontSize(loadFontSize());
+            applyAccent(loadAccent());
             void refreshAll({ silent: true });
         };
         window.addEventListener('focus', onFocus);
@@ -370,6 +419,27 @@ export default function TrayApp() {
             ? targetMode
             : '__active__';
 
+    const adapterOptions: SelectOption<string>[] = useMemo(
+        () => [
+            {
+                value: '__active__',
+                label: activeAdapter
+                    ? t('tray.targetActive', { name: activeAdapter.name })
+                    : t('home.noActiveAdapter'),
+            },
+            {
+                value: '__all__',
+                label: t('tray.targetAll', { count: num(adapters.length) }),
+            },
+            ...adapters.map((a) => ({
+                value: a.name,
+                label: a.name,
+                badge: a.is_default ? t('common.default') : undefined,
+            })),
+        ],
+        [activeAdapter, adapters, t, num]
+    );
+
     const resolveTargets = useCallback((): 'all' | string[] => {
         if (effectiveTargetMode === '__all__') return 'all';
         if (effectiveTargetMode === '__active__') {
@@ -417,10 +487,12 @@ export default function TrayApp() {
         }
     }, [showToast, t]);
 
+    const getBenchmarkTarget = () =>
+        localStorage.getItem('dnss.benchmarkTarget')?.trim() ||
+        DEFAULT_BENCHMARK_TARGET;
+
     const pingEntry = useCallback(async (entry: TrayEntry) => {
-        const target =
-            localStorage.getItem('dnss.benchmarkTarget') ??
-            DEFAULT_BENCHMARK_TARGET;
+        const target = getBenchmarkTarget();
         setPings((prev) => ({ ...prev, [entry.key]: { status: 'testing' } }));
         try {
             const sample = await api.benchmarkDns(entry.primary, target);
@@ -429,6 +501,8 @@ export default function TrayApp() {
                     ...prev,
                     [entry.key]: {
                         status: 'error',
+                        resolveMs: sample.resolve_ms,
+                        address: sample.address,
                         error: `Resolved ${sample.address} in ${sample.resolve_ms} ms, but TCP connect failed`,
                     },
                 }));
@@ -438,6 +512,9 @@ export default function TrayApp() {
                     [entry.key]: {
                         status: 'ok',
                         latencyMs: sample.resolve_ms + sample.connect_ms!,
+                        resolveMs: sample.resolve_ms,
+                        connectMs: sample.connect_ms!,
+                        address: sample.address,
                     },
                 }));
             }
@@ -454,7 +531,7 @@ export default function TrayApp() {
         }
     }, []);
 
-    const entries: TrayEntry[] = useMemo(() => {
+    const baseEntries: TrayEntry[] = useMemo(() => {
         const customEntries: TrayEntry[] = configs.map((c, i) => ({
             key: `custom:${i}:${c.name}:${c.primary}`,
             name: c.name,
@@ -480,6 +557,202 @@ export default function TrayApp() {
                 .includes(q)
         );
     }, [configs, hiddenPresets, search]);
+
+    const entries: TrayEntry[] = useMemo(() => {
+        if (!sortByLatency) return baseEntries;
+        return [...baseEntries].sort((a, b) => {
+            const pa = pings[a.key];
+            const pb = pings[b.key];
+            const la =
+                pa?.status === 'ok'
+                    ? (pa.latencyMs ?? Number.MAX_SAFE_INTEGER)
+                    : Number.MAX_SAFE_INTEGER;
+            const lb =
+                pb?.status === 'ok'
+                    ? (pb.latencyMs ?? Number.MAX_SAFE_INTEGER)
+                    : Number.MAX_SAFE_INTEGER;
+            return la - lb;
+        });
+    }, [baseEntries, pings, sortByLatency]);
+
+    // Run full benchmark right inside the tray popover!
+    const runTrayBenchmark = useCallback(async () => {
+        if (benchmarking || baseEntries.length === 0) return;
+        const myRunId = ++benchRunIdRef.current;
+        const target = getBenchmarkTarget();
+
+        setBenchmarking(true);
+        setSortByLatency(true);
+        setPings((prev) => ({
+            ...prev,
+            ...Object.fromEntries(
+                baseEntries.map((e) => [e.key, { status: 'testing' as const }])
+            ),
+        }));
+
+        const results: PingState[] = [];
+        try {
+            const concurrency = Math.min(4, baseEntries.length);
+            const queue = [...baseEntries];
+            const worker = async () => {
+                let entry = queue.shift();
+                while (entry) {
+                    const current = entry;
+                    let state: PingState;
+                    try {
+                        const sample = await api.benchmarkDns(
+                            current.primary,
+                            target
+                        );
+                        if (sample.connect_ms === null) {
+                            state = {
+                                status: 'error',
+                                resolveMs: sample.resolve_ms,
+                                address: sample.address,
+                                error: `Resolved ${sample.address} in ${sample.resolve_ms} ms, but TCP connect failed`,
+                            };
+                        } else {
+                            state = {
+                                status: 'ok',
+                                latencyMs:
+                                    sample.resolve_ms + sample.connect_ms,
+                                resolveMs: sample.resolve_ms,
+                                connectMs: sample.connect_ms,
+                                address: sample.address,
+                            };
+                        }
+                    } catch (error) {
+                        const message = String(error);
+                        const isTimeout = /timed?\s?out|timeout/i.test(message);
+                        state = {
+                            status: isTimeout ? 'timeout' : 'error',
+                            error: message,
+                        };
+                    }
+                    results.push(state);
+                    if (benchRunIdRef.current === myRunId) {
+                        setPings((prev) => ({ ...prev, [current.key]: state }));
+                    }
+                    entry = queue.shift();
+                }
+            };
+            await Promise.all(
+                Array.from({ length: Math.max(1, concurrency) }, () => worker())
+            );
+
+            if (benchRunIdRef.current !== myRunId) return;
+
+            const fakeIpHit = results.find(
+                (r) =>
+                    r.status === 'error' &&
+                    Boolean(r.error && /FakeIP|198\.18\./i.test(r.error))
+            );
+            if (fakeIpHit) {
+                showToast(t('servers.vpnFakeIpWarning'), 'error');
+                return;
+            }
+
+            const okResults = results.filter((r) => r.status === 'ok');
+            const fastHits = okResults.filter((r) => (r.latencyMs ?? 999) <= 5);
+            const fastIps = new Set(
+                fastHits.map((r) => r.address).filter(Boolean)
+            );
+            if (
+                activeAdapter &&
+                VPN_ADAPTER_RE.test(
+                    `${activeAdapter.name} ${activeAdapter.kind ?? ''}`
+                ) &&
+                fastHits.length >= 3 &&
+                fastIps.size === 1
+            ) {
+                showToast(
+                    t('servers.vpnHijackWarning', {
+                        adapter: activeAdapter.name,
+                    }),
+                    'error'
+                );
+                return;
+            }
+
+            if (okResults.length === 0 && results.length > 0) {
+                const firstErr = results.find((r) => r.error)?.error;
+                if (firstErr) {
+                    showToast(
+                        t('servers.benchFailedSummary', { reason: firstErr }),
+                        'error'
+                    );
+                }
+            }
+        } finally {
+            if (benchRunIdRef.current === myRunId) {
+                setBenchmarking(false);
+            }
+        }
+    }, [benchmarking, baseEntries, activeAdapter, showToast, t]);
+
+    // Save a custom DNS server directly inside the tray popover!
+    const handleSaveCustom = useCallback(async () => {
+        if (savingCustom) return;
+        const trimmedName = customName.trim();
+        const trimmedPrimary = customPrimary.trim();
+        const trimmedAlt = customAlt.trim();
+
+        if (!trimmedName || !trimmedPrimary) {
+            showToast(t('toast.nameRequired'), 'error');
+            return;
+        }
+        if ([...trimmedName].length > 64) {
+            showToast(t('toast.nameTooLong'), 'error');
+            return;
+        }
+        if (!validateIPv4(trimmedPrimary)) {
+            showToast(t('toast.badPrimary'), 'error');
+            return;
+        }
+        if (trimmedAlt && !validateIPv4(trimmedAlt)) {
+            showToast(t('toast.badAlt'), 'error');
+            return;
+        }
+        const duplicate = configs.some(
+            (c) => c.name.toLowerCase() === trimmedName.toLowerCase()
+        );
+        if (duplicate) {
+            showToast(t('toast.duplicate', { name: trimmedName }), 'error');
+            return;
+        }
+
+        const next: DnsConfig[] = [
+            ...configs,
+            {
+                name: trimmedName,
+                primary: trimmedPrimary,
+                alternative: trimmedAlt || undefined,
+            },
+        ];
+
+        setSavingCustom(true);
+        try {
+            const saved = await api.saveConfigs(next);
+            setConfigs(saved);
+            setCustomName('');
+            setCustomPrimary('');
+            setCustomAlt('');
+            setCustomOpen(false);
+            showToast(t('toast.added', { name: trimmedName }));
+        } catch (error) {
+            showToast(t('toast.saveFailed', { error: String(error) }), 'error');
+        } finally {
+            setSavingCustom(false);
+        }
+    }, [
+        savingCustom,
+        customName,
+        customPrimary,
+        customAlt,
+        configs,
+        showToast,
+        t,
+    ]);
 
     const busy = busyOp !== null;
     const isCustomDnsActive = Boolean(
@@ -513,11 +786,11 @@ export default function TrayApp() {
                         className="size-5 shrink-0"
                         draggable={false}
                     />
-                    <span className="text-[13px] font-bold text-[var(--dnss-ink-1)]">
+                    <span className="text-[length:var(--dnss-fs-sm)] font-bold text-[var(--dnss-ink-1)]">
                         DNSS
                     </span>
                     <span
-                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[length:var(--dnss-fs-2xs)] font-medium ${
                             isCustomDnsActive
                                 ? 'bg-[var(--dnss-accent-soft)] text-[var(--dnss-accent-text)]'
                                 : 'bg-[var(--dnss-raised)] text-[var(--dnss-ink-3)]'
@@ -541,7 +814,7 @@ export default function TrayApp() {
                         type="button"
                         title={t('tray.openApp')}
                         onClick={() => void api.showMainWindow('home')}
-                        className="grid size-7 shrink-0 place-items-center rounded-lg text-[var(--dnss-ink-2)] transition-colors hover:bg-[var(--dnss-hover)] hover:text-[var(--dnss-ink-1)]"
+                        className="grid size-7 shrink-0 place-items-center rounded-lg text-[var(--dnss-ink-2)] hover:bg-[var(--dnss-hover)] hover:text-[var(--dnss-ink-1)]"
                     >
                         <ArrowTopRightOnSquareIcon className="size-4 shrink-0" />
                     </button>
@@ -549,14 +822,14 @@ export default function TrayApp() {
                         type="button"
                         title={t('tray.quit')}
                         onClick={() => void api.quitApp()}
-                        className="grid size-7 shrink-0 place-items-center rounded-lg text-[var(--dnss-ink-3)] transition-colors hover:bg-[var(--dnss-error-soft)] hover:text-[var(--dnss-error)]"
+                        className="grid size-7 shrink-0 place-items-center rounded-lg text-[var(--dnss-ink-3)] hover:bg-[var(--dnss-error-soft)] hover:text-[var(--dnss-error)]"
                     >
                         <PowerIcon className="size-4 shrink-0" />
                     </button>
                 </div>
             </header>
 
-            {(busy || refreshing) && (
+            {(busy || refreshing || benchmarking) && (
                 <div
                     className="loading-bar shrink-0"
                     role="status"
@@ -579,12 +852,12 @@ export default function TrayApp() {
                                 <ShieldCheckIcon className="size-4 shrink-0" />
                             </div>
                             <div className="min-w-0">
-                                <div className="truncate text-[13px] font-semibold leading-tight text-[var(--dnss-ink-1)]">
+                                <div className="truncate text-[length:var(--dnss-fs-sm)] font-semibold leading-tight text-[var(--dnss-ink-1)]">
                                     {activeProvider}
                                 </div>
                                 <div
                                     dir="ltr"
-                                    className="mt-0.5 truncate font-mono text-[11px] tabular-nums text-[var(--dnss-ink-2)]"
+                                    className="mt-0.5 truncate font-mono text-[length:var(--dnss-fs-2xs)] tabular-nums text-[var(--dnss-ink-2)]"
                                 >
                                     {displayServers.length > 0
                                         ? displayServers.join(' · ')
@@ -599,7 +872,7 @@ export default function TrayApp() {
                             type="button"
                             disabled={busy || !canToggle}
                             onClick={() => void handleToggle()}
-                            className={`inline-flex h-7 flex-1 items-center justify-center gap-1.5 rounded-lg px-2.5 text-[12px] font-medium transition-colors ${
+                            className={`inline-flex h-7 flex-1 items-center justify-center gap-1.5 rounded-lg px-2.5 text-[length:var(--dnss-fs-xs)] font-medium ${
                                 isCustomDnsActive
                                     ? 'bg-[var(--dnss-raised)] text-[var(--dnss-ink-1)] hover:bg-[var(--dnss-hover)]'
                                     : 'bg-[var(--dnss-accent)] text-[var(--dnss-accent-ink)] hover:bg-[var(--dnss-accent-hover)]'
@@ -617,7 +890,7 @@ export default function TrayApp() {
                             type="button"
                             disabled={busy}
                             onClick={() => void handleFlush()}
-                            className="inline-flex h-7 items-center gap-1 rounded-lg bg-[var(--dnss-raised)] px-2.5 text-[12px] font-medium text-[var(--dnss-ink-1)] transition-colors hover:bg-[var(--dnss-hover)] disabled:opacity-45"
+                            className="inline-flex h-7 items-center gap-1 rounded-lg bg-[var(--dnss-raised)] px-2.5 text-[length:var(--dnss-fs-xs)] font-medium text-[var(--dnss-ink-1)] hover:bg-[var(--dnss-hover)] disabled:opacity-45"
                         >
                             {busyOp?.kind === 'flush' ? (
                                 <span className="loading loading-spinner loading-xs" />
@@ -629,50 +902,141 @@ export default function TrayApp() {
                     </div>
                 </div>
 
-                {/* Compact Adapter Switcher + Quick Actions */}
+                {/* Custom Adapter Switcher + In-Tray Custom & Benchmark Actions */}
                 <div className="mt-2 flex items-center gap-1.5">
-                    <select
-                        aria-label={t('servers.applyTo')}
+                    <CustomSelect
                         value={effectiveTargetMode}
-                        onChange={(e) => setTargetMode(e.target.value)}
-                        className="dnss-input h-7 min-w-0 flex-1 truncate rounded-lg px-2 text-[11px] font-medium"
-                    >
-                        <option value="__active__">
-                            {activeAdapter
-                                ? t('tray.targetActive', {
-                                      name: activeAdapter.name,
-                                  })
-                                : t('home.noActiveAdapter')}
-                        </option>
-                        <option value="__all__">
-                            {t('tray.targetAll', {
-                                count: num(adapters.length),
-                            })}
-                        </option>
-                        {adapters.map((a) => (
-                            <option key={a.name} value={a.name}>
-                                {a.name}
-                            </option>
-                        ))}
-                    </select>
+                        options={adapterOptions}
+                        onChange={setTargetMode}
+                        ariaLabel={t('servers.applyTo')}
+                        size="sm"
+                        className="min-w-0 flex-1"
+                        panelClassName="max-h-48"
+                    />
 
                     <button
                         type="button"
-                        onClick={() => void api.showMainWindow('servers')}
-                        className="inline-flex h-7 shrink-0 items-center gap-1 rounded-lg bg-[var(--dnss-surface)] px-2 text-[11px] font-medium text-[var(--dnss-ink-2)] ring-1 ring-[var(--dnss-border)] transition-colors hover:bg-[var(--dnss-raised)] hover:text-[var(--dnss-ink-1)]"
+                        aria-expanded={customOpen}
+                        onClick={() => setCustomOpen((v) => !v)}
+                        className={`inline-flex h-7 shrink-0 items-center gap-1 rounded-lg px-2 text-[length:var(--dnss-fs-2xs)] font-medium ring-1 ${
+                            customOpen
+                                ? 'bg-[var(--dnss-accent-soft)] text-[var(--dnss-accent-text)] ring-[var(--dnss-accent)]/40'
+                                : 'bg-[var(--dnss-surface)] text-[var(--dnss-ink-2)] ring-[var(--dnss-border)] hover:bg-[var(--dnss-raised)] hover:text-[var(--dnss-ink-1)]'
+                        }`}
                     >
-                        <PlusIcon className="size-3.5 shrink-0" />
+                        <PlusIcon
+                            className={`size-3.5 shrink-0 transition-transform duration-200 ${
+                                customOpen ? 'rotate-45' : ''
+                            }`}
+                        />
                         {t('tray.addCustom')}
                     </button>
 
                     <button
                         type="button"
-                        onClick={() => void api.showMainWindow('servers')}
-                        title={t('tray.benchmark')}
-                        className="grid size-7 shrink-0 place-items-center rounded-lg bg-[var(--dnss-surface)] text-[var(--dnss-accent)] ring-1 ring-[var(--dnss-border)] transition-colors hover:bg-[var(--dnss-raised)]"
+                        disabled={benchmarking}
+                        onClick={() => void runTrayBenchmark()}
+                        title={
+                            benchmarking
+                                ? t('tray.benchmarking')
+                                : t('tray.benchmark')
+                        }
+                        className="grid size-7 shrink-0 place-items-center rounded-lg bg-[var(--dnss-surface)] text-[var(--dnss-accent)] ring-1 ring-[var(--dnss-border)] hover:bg-[var(--dnss-raised)] disabled:opacity-60"
                     >
-                        <BoltIcon className="size-3.5 shrink-0" />
+                        {benchmarking ? (
+                            <span className="loading loading-spinner loading-xs" />
+                        ) : (
+                            <BoltIcon className="size-3.5 shrink-0" />
+                        )}
                     </button>
+                </div>
+
+                {/* Smooth Inline "+ Custom" Drawer inside the Tray Popover */}
+                <div
+                    aria-hidden={!customOpen}
+                    className={`grid overflow-hidden transition-[grid-template-rows,opacity,margin] duration-220 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+                        customOpen
+                            ? 'visible mt-2 grid-rows-[1fr] opacity-100'
+                            : 'invisible pointer-events-none mt-0 grid-rows-[0fr] opacity-0'
+                    }`}
+                >
+                    <div className="min-h-0">
+                        <form
+                            onSubmit={(e) => {
+                                e.preventDefault();
+                                void handleSaveCustom();
+                            }}
+                            className="dnss-card flex flex-col gap-2 rounded-xl p-2.5"
+                        >
+                            <div className="flex items-center justify-between">
+                                <span className="text-[length:var(--dnss-fs-2xs)] font-semibold text-[var(--dnss-ink-1)]">
+                                    {t('tray.customTitle')}
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={() => setCustomOpen(false)}
+                                    className="grid size-5 place-items-center rounded text-[var(--dnss-ink-3)] hover:bg-[var(--dnss-hover)] hover:text-[var(--dnss-ink-1)]"
+                                >
+                                    <XMarkIcon className="size-3.5" />
+                                </button>
+                            </div>
+
+                            <input
+                                type="text"
+                                value={customName}
+                                maxLength={64}
+                                onChange={(e) => setCustomName(e.target.value)}
+                                placeholder={t('form.namePh')}
+                                className="dnss-input h-7 rounded-lg px-2 text-[length:var(--dnss-fs-2xs)]"
+                            />
+
+                            <div className="grid grid-cols-2 gap-1.5">
+                                <input
+                                    type="text"
+                                    dir="ltr"
+                                    value={customPrimary}
+                                    onChange={(e) =>
+                                        setCustomPrimary(e.target.value)
+                                    }
+                                    placeholder={t('form.primaryPh')}
+                                    className="dnss-input h-7 rounded-lg px-2 font-mono text-[length:var(--dnss-fs-2xs)] tabular-nums"
+                                />
+                                <input
+                                    type="text"
+                                    dir="ltr"
+                                    value={customAlt}
+                                    onChange={(e) =>
+                                        setCustomAlt(e.target.value)
+                                    }
+                                    placeholder={t('form.altPh')}
+                                    className="dnss-input h-7 rounded-lg px-2 font-mono text-[length:var(--dnss-fs-2xs)] tabular-nums"
+                                />
+                            </div>
+
+                            <div className="flex justify-end gap-1.5">
+                                <button
+                                    type="button"
+                                    disabled={savingCustom}
+                                    onClick={() => setCustomOpen(false)}
+                                    className="h-6 rounded-md px-2 text-[length:var(--dnss-fs-2xs)] text-[var(--dnss-ink-2)] hover:bg-[var(--dnss-hover)]"
+                                >
+                                    {t('common.cancel')}
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={savingCustom}
+                                    className="inline-flex h-6 items-center gap-1 rounded-md bg-[var(--dnss-accent)] px-2.5 text-[length:var(--dnss-fs-2xs)] font-medium text-[var(--dnss-accent-ink)] hover:bg-[var(--dnss-accent-hover)] disabled:opacity-50"
+                                >
+                                    {savingCustom ? (
+                                        <span className="loading loading-spinner loading-xs" />
+                                    ) : (
+                                        <CheckIcon className="size-3 shrink-0" />
+                                    )}
+                                    {t('common.save')}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
                 </div>
 
                 {/* Quick Search */}
@@ -683,16 +1047,19 @@ export default function TrayApp() {
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                         placeholder={t('servers.search')}
-                        className="w-full bg-transparent text-[12px] text-[var(--dnss-ink-1)] outline-none placeholder:text-[var(--dnss-ink-3)]"
+                        className="w-full bg-transparent text-[length:var(--dnss-fs-xs)] text-[var(--dnss-ink-1)] outline-none placeholder:text-[var(--dnss-ink-3)]"
                     />
                 </label>
             </div>
 
-            {/* Scrollable Server List */}
+            {/* Scrollable Server List with AutoAnimate */}
             <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-2">
                 <div className="dnss-card overflow-hidden rounded-xl">
                     {entries.length > 0 ? (
-                        <ul className="divide-y divide-[var(--dnss-border)]">
+                        <ul
+                            ref={trayListRef}
+                            className="divide-y divide-[var(--dnss-border)]"
+                        >
                             {entries.map((entry) => {
                                 const isActive =
                                     activeStaticPrimary === entry.primary;
@@ -700,6 +1067,18 @@ export default function TrayApp() {
                                     busyOp?.kind === 'apply' &&
                                     busyOp.id === entry.key;
                                 const ping = pings[entry.key];
+
+                                const breakdown =
+                                    ping?.status === 'ok' &&
+                                    ping.address !== undefined &&
+                                    ping.resolveMs !== undefined &&
+                                    ping.connectMs !== undefined
+                                        ? t('servers.breakdownTooltip', {
+                                              address: ping.address,
+                                              resolve: ping.resolveMs,
+                                              connect: ping.connectMs,
+                                          })
+                                        : undefined;
 
                                 return (
                                     <li
@@ -719,18 +1098,18 @@ export default function TrayApp() {
                                                             : 'bg-transparent'
                                                     }`}
                                                 />
-                                                <span className="truncate text-[12px] font-medium text-[var(--dnss-ink-1)]">
+                                                <span className="truncate text-[length:var(--dnss-fs-xs)] font-medium text-[var(--dnss-ink-1)]">
                                                     {entry.name}
                                                 </span>
                                                 {entry.custom && (
-                                                    <span className="shrink-0 rounded bg-[var(--dnss-raised)] px-1 py-0.5 text-[11px] text-[var(--dnss-ink-3)]">
+                                                    <span className="shrink-0 rounded bg-[var(--dnss-raised)] px-1 py-0.5 text-[10px] text-[var(--dnss-ink-3)]">
                                                         {t(
                                                             'servers.filterCustom'
                                                         )}
                                                     </span>
                                                 )}
                                             </div>
-                                            <div className="truncate ps-3 font-mono text-[11px] tabular-nums text-[var(--dnss-ink-3)]">
+                                            <div className="truncate ps-3 font-mono text-[length:var(--dnss-fs-2xs)] tabular-nums text-[var(--dnss-ink-3)]">
                                                 <bdi dir="ltr">
                                                     {entry.primary}
                                                     {entry.alternative
@@ -744,7 +1123,8 @@ export default function TrayApp() {
                                             {ping?.status === 'ok' && (
                                                 <span
                                                     dir="ltr"
-                                                    className={`rounded px-1.5 py-0.5 font-mono text-[11px] font-medium tabular-nums ${
+                                                    title={breakdown}
+                                                    className={`rounded px-1.5 py-0.5 font-mono text-[length:var(--dnss-fs-2xs)] font-medium tabular-nums ${
                                                         (ping.latencyMs ?? 0) <
                                                         60
                                                             ? 'bg-[var(--dnss-accent-soft)] text-[var(--dnss-accent-text)]'
@@ -763,7 +1143,12 @@ export default function TrayApp() {
                                                 ping?.status === 'error') && (
                                                 <span
                                                     title={ping.error}
-                                                    className="rounded bg-[var(--dnss-error-soft)] px-1.5 py-0.5 text-[11px] font-medium text-[var(--dnss-error)]"
+                                                    className={`rounded px-1.5 py-0.5 text-[length:var(--dnss-fs-2xs)] font-medium ${
+                                                        ping.status ===
+                                                        'timeout'
+                                                            ? 'bg-[var(--dnss-warning-soft)] text-[var(--dnss-warning)]'
+                                                            : 'bg-[var(--dnss-error-soft)] text-[var(--dnss-error)]'
+                                                    }`}
                                                 >
                                                     {ping.status === 'timeout'
                                                         ? t(
@@ -785,7 +1170,7 @@ export default function TrayApp() {
                                                 onClick={() =>
                                                     void pingEntry(entry)
                                                 }
-                                                className="grid size-6 shrink-0 place-items-center rounded-md text-[var(--dnss-ink-3)] transition-colors hover:bg-[var(--dnss-raised)] hover:text-[var(--dnss-ink-1)] disabled:opacity-40"
+                                                className="grid size-6 shrink-0 place-items-center rounded-md text-[var(--dnss-ink-3)] hover:bg-[var(--dnss-raised)] hover:text-[var(--dnss-ink-1)] disabled:opacity-40"
                                             >
                                                 {ping?.status === 'testing' ? (
                                                     <span className="loading loading-spinner loading-xs" />
@@ -813,7 +1198,7 @@ export default function TrayApp() {
                                                         }
                                                     )
                                                 }
-                                                className={`inline-flex h-6 items-center gap-1 rounded-md px-2 text-[11px] font-medium transition-colors ${
+                                                className={`inline-flex h-6 items-center gap-1 rounded-md px-2 text-[length:var(--dnss-fs-2xs)] font-medium ${
                                                     isActive
                                                         ? 'bg-[var(--dnss-raised)] text-[var(--dnss-ink-1)]'
                                                         : 'bg-[var(--dnss-accent)] text-[var(--dnss-accent-ink)] hover:bg-[var(--dnss-accent-hover)]'
@@ -830,7 +1215,7 @@ export default function TrayApp() {
                             })}
                         </ul>
                     ) : (
-                        <div className="px-3 py-6 text-center text-[12px] text-[var(--dnss-ink-3)]">
+                        <div className="px-3 py-6 text-center text-[length:var(--dnss-fs-xs)] text-[var(--dnss-ink-3)]">
                             {t('tray.noMatches', { query: search.trim() })}
                         </div>
                     )}
@@ -842,10 +1227,11 @@ export default function TrayApp() {
                 <div className="min-w-0 flex-1">
                     {toast ? (
                         <div
-                            className={`flex items-center gap-1.5 truncate text-[11px] font-medium ${
+                            title={toast.message}
+                            className={`toast-pop flex items-center gap-1.5 truncate text-[length:var(--dnss-fs-2xs)] font-medium ${
                                 toast.kind === 'error'
                                     ? 'text-[var(--dnss-error)]'
-                                    : 'text-[var(--dnss-accent)]'
+                                    : 'text-[var(--dnss-accent-text)]'
                             }`}
                         >
                             {toast.kind === 'error' ? (
@@ -860,7 +1246,7 @@ export default function TrayApp() {
                             type="button"
                             disabled={busy || refreshing}
                             onClick={() => void refreshAll()}
-                            className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] font-medium text-[var(--dnss-ink-2)] transition-colors hover:bg-[var(--dnss-hover)] hover:text-[var(--dnss-ink-1)] disabled:opacity-45"
+                            className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[length:var(--dnss-fs-2xs)] font-medium text-[var(--dnss-ink-2)] hover:bg-[var(--dnss-hover)] hover:text-[var(--dnss-ink-1)] disabled:opacity-45"
                         >
                             <ArrowPathIcon
                                 className={`size-3.5 shrink-0 ${
@@ -880,7 +1266,7 @@ export default function TrayApp() {
                             const resolved = getResolvedTheme(theme);
                             setTheme(resolved === 'dark' ? 'light' : 'dark');
                         }}
-                        className="grid size-6 shrink-0 place-items-center rounded-md text-[var(--dnss-ink-2)] transition-colors hover:bg-[var(--dnss-hover)] hover:text-[var(--dnss-ink-1)]"
+                        className="grid size-6 shrink-0 place-items-center rounded-md text-[var(--dnss-ink-2)] hover:bg-[var(--dnss-hover)] hover:text-[var(--dnss-ink-1)]"
                     >
                         {theme === 'light' ? (
                             <SunIcon className="size-3.5 shrink-0" />
@@ -895,7 +1281,7 @@ export default function TrayApp() {
                         type="button"
                         title={t('app.toggleLang')}
                         onClick={() => setLang(lang === 'en' ? 'fa' : 'en')}
-                        className="inline-flex h-6 items-center rounded-md px-1.5 text-[11px] font-semibold uppercase text-[var(--dnss-ink-2)] transition-colors hover:bg-[var(--dnss-hover)] hover:text-[var(--dnss-ink-1)]"
+                        className="inline-flex h-6 items-center rounded-md px-1.5 text-[length:var(--dnss-fs-2xs)] font-semibold uppercase text-[var(--dnss-ink-2)] hover:bg-[var(--dnss-hover)] hover:text-[var(--dnss-ink-1)]"
                     >
                         {lang === 'en' ? 'FA' : 'EN'}
                     </button>

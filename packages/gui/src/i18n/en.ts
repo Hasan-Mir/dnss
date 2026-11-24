@@ -6,6 +6,13 @@
  * key. To add a whole language, see `index.ts`.
  */
 const en = {
+    // Window chrome
+    'window.title': 'DNSS - DNS Switcher',
+    'window.minimize': 'Minimize',
+    'window.maximize': 'Maximize',
+    'window.restore': 'Restore',
+    'window.close': 'Close to tray',
+
     // Header / navigation
     'app.tagline': 'DNS Switcher',
     'app.toggleTheme': 'Toggle theme',
@@ -97,8 +104,13 @@ const en = {
     'servers.benchTarget': 'Benchmark target',
     'servers.benchTargetHint':
         'Hostname resolved during latency checks (shared with CLI behavior).',
-    'servers.saved': 'Custom',
-    'servers.presets': 'Built-in presets',
+    'servers.vpnFakeIpWarning':
+        'VPN FakeIP (198.18.x.x) intercepted the DNS benchmark. Pause VPN/TUN FakeIP mode to measure real DNS latency.',
+    'servers.vpnHijackWarning':
+        'Multiple resolvers returned sub-5 ms responses from the same IP. Your active VPN/TUN adapter ({adapter}) is likely intercepting UDP/53 and TCP locally — pause TUN mode for accurate results.',
+    'servers.benchFailedSummary': 'Benchmark failed: {reason}',
+    'servers.breakdownTooltip':
+        '{address} · DNS {resolve} ms + TCP {connect} ms',
     'servers.noSavedMatch': 'No custom servers match "{query}"',
     'servers.noSavedYet': 'No custom servers yet — add one to save it locally',
     'servers.noPresetMatch': 'No presets match “{query}”',
@@ -130,6 +142,18 @@ const en = {
     'settings.light': 'Light',
     'settings.dark': 'Dark',
     'settings.system': 'System',
+    'settings.accent': 'Accent color',
+    'settings.accentDesc':
+        'Pick a curated preset or dial in any custom color from the spectrum.',
+    'settings.accentHue': 'Hue',
+    'settings.accentSat': 'Saturation',
+    'settings.accentReset': 'Reset',
+    'settings.font': 'Font family',
+    'settings.fontDesc':
+        'Choose your preferred UI typeface (Persian text always uses Vazirmatn).',
+    'settings.fontSize': 'Font size',
+    'settings.fontSizeDesc':
+        'Adjust text size across the desktop app and tray popover.',
     'settings.language': 'Language',
     'settings.languageHint': 'Applies immediately without restarting.',
     'settings.maintenance': 'Network maintenance',
@@ -160,7 +184,9 @@ const en = {
     'tray.targetActive': 'Active ({name})',
     'tray.targetAll': 'All adapters ({count})',
     'tray.addCustom': 'Custom',
-    'tray.benchmark': 'Benchmark',
+    'tray.benchmark': 'Benchmark all',
+    'tray.benchmarking': 'Benchmarking…',
+    'tray.customTitle': 'Add custom server',
     'tray.resetDhcp': 'Reset DHCP',
     'tray.restore': 'Restore',
     'tray.flush': 'Flush',

@@ -8,101 +8,141 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 
-/** Gap between the trigger and the panel, and the minimum distance the
-    panel keeps from the window edges. */
 const GAP = 6;
 const EDGE = 8;
+const EXIT_MS = 135;
 
 interface Position {
     top: number;
     left: number;
+    minWidth?: number;
+    maxWidth: number;
     transformOrigin: string;
 }
 
-/** Resolve the panel's fixed position against its trigger: `placement` is
-    only a preference — the panel flips to the other side when the window
-    has no room, is clamped inside the window, and hugs the trigger's
-    inline-end edge (the reading edge, so it mirrors under RTL). */
 function computePosition(
     anchor: HTMLElement,
     panel: HTMLElement,
-    placement: 'top' | 'bottom'
+    placement: 'top' | 'bottom',
+    matchAnchorWidth: boolean
 ): Position | null {
     const a = anchor.getBoundingClientRect();
-    // Layout size instead of getBoundingClientRect: the pop-in animation
-    // starts at scale(0.96), and a transformed rect would place the panel
-    // for a shrunken size that then grows past the trigger's edge.
-    const p = { width: panel.offsetWidth, height: panel.offsetHeight };
-    if (p.width === 0 || p.height === 0) return null;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
+    const maxWidth = Math.max(0, vw - EDGE * 2);
+    const rawWidth = matchAnchorWidth
+        ? Math.max(a.width, panel.offsetWidth)
+        : panel.offsetWidth;
+    const pWidth = Math.min(rawWidth, maxWidth);
+    const pHeight = panel.offsetHeight;
+    if (pWidth === 0 || pHeight === 0) return null;
+
     const rtl = document.documentElement.dir === 'rtl';
 
-    const fitsAbove = a.top - EDGE >= p.height;
-    const fitsBelow = vh - EDGE - a.bottom >= p.height;
+    const fitsAbove = a.top - EDGE >= pHeight;
+    const fitsBelow = vh - EDGE - a.bottom >= pHeight;
     let top: number;
     if (placement === 'top') {
-        top = fitsAbove || !fitsBelow ? a.top - GAP - p.height : a.bottom + GAP;
+        top = fitsAbove || !fitsBelow ? a.top - GAP - pHeight : a.bottom + GAP;
     } else {
-        top = fitsBelow || !fitsAbove ? a.bottom + GAP : a.top - GAP - p.height;
+        top = fitsBelow || !fitsAbove ? a.bottom + GAP : a.top - GAP - pHeight;
     }
-    // Neither side fits (panel taller than the window): pin to the top edge.
-    top = Math.max(EDGE, Math.min(top, vh - EDGE - p.height));
+    top = Math.max(EDGE, Math.min(top, vh - EDGE - pHeight));
 
-    let left = rtl ? a.left : a.right - p.width;
-    left = Math.max(EDGE, Math.min(left, vw - EDGE - p.width));
+    let left: number;
+    if (matchAnchorWidth) {
+        left = a.left;
+    } else {
+        left = rtl ? a.left : a.right - pWidth;
+    }
+    left = Math.max(EDGE, Math.min(left, vw - EDGE - pWidth));
 
-    // Pop animation grows from the corner nearest the trigger.
     const originY = top >= a.top ? 'top' : 'bottom';
-    const originX = rtl ? 'left' : 'right';
-    return { top, left, transformOrigin: `${originY} ${originX}` };
+    const originX = matchAnchorWidth ? 'center' : rtl ? 'left' : 'right';
+    return {
+        top,
+        left,
+        minWidth: matchAnchorWidth ? Math.min(a.width, maxWidth) : undefined,
+        maxWidth,
+        transformOrigin: `${originY} ${originX}`,
+    };
 }
 
 interface FloatingPanelProps {
-    /** Trigger element the panel anchors to. It must stay mounted while the
-        panel is open (panels here only open from their own button). */
     anchor: HTMLElement | null;
+    /** Controls visibility with smooth Notion-style exit transition. Defaults to true when mounted. */
+    open?: boolean;
     onClose: () => void;
-    /** Preferred side of the trigger; flips when the window has no room. */
     placement?: 'top' | 'bottom';
-    /** Size and surface classes (width, border, shadow, padding…). */
+    /** Match the panel's minimum width to the trigger element (ideal for CustomSelect). */
+    matchAnchorWidth?: boolean;
     className?: string;
     children: ReactNode;
 }
 
-/** A floating menu/confirm panel rendered in a portal, so clipping
-    ancestors (accordion wrappers) can never cut it off, with viewport-aware
-    placement the CSS-only dropdowns lacked. Closes on outside click and
-    Escape, and follows the trigger while the page scrolls or resizes. */
+/** Portal-rendered floating panel with viewport-aware placement and smooth
+    Notion-style enter & exit transitions. */
 export default function FloatingPanel({
     anchor,
+    open = true,
     onClose,
     placement = 'bottom',
+    matchAnchorWidth = false,
     className = '',
     children,
 }: FloatingPanelProps) {
     const panelRef = useRef<HTMLDivElement | null>(null);
+    const [mounted, setMounted] = useState(open && Boolean(anchor));
+    const [closing, setClosing] = useState(false);
     const [pos, setPos] = useState<Position | null>(null);
+    const lastAnchorRef = useRef<HTMLElement | null>(anchor);
+
+    if (anchor) {
+        lastAnchorRef.current = anchor;
+    }
+
+    useEffect(() => {
+        if (open && anchor) {
+            setMounted(true);
+            setClosing(false);
+            return;
+        }
+        if (mounted) {
+            setClosing(true);
+            const timer = window.setTimeout(() => {
+                setMounted(false);
+                setClosing(false);
+            }, EXIT_MS);
+            return () => window.clearTimeout(timer);
+        }
+    }, [open, anchor, mounted]);
+
+    const effectiveAnchor = anchor ?? lastAnchorRef.current;
 
     const update = useCallback(() => {
         const panel = panelRef.current;
-        if (!anchor || !panel) return;
-        const next = computePosition(anchor, panel, placement);
+        if (!effectiveAnchor || !panel) return;
+        const next = computePosition(
+            effectiveAnchor,
+            panel,
+            placement,
+            matchAnchorWidth
+        );
         if (!next) return;
         setPos((prev) =>
             prev &&
             prev.top === next.top &&
             prev.left === next.left &&
+            prev.minWidth === next.minWidth &&
+            prev.maxWidth === next.maxWidth &&
             prev.transformOrigin === next.transformOrigin
                 ? prev
                 : next
         );
-    }, [anchor, placement]);
+    }, [effectiveAnchor, placement, matchAnchorWidth]);
 
-    // Measure before the first paint (a hidden element still has a rect, so
-    // there is no flicker), then keep the panel glued to the trigger while
-    // anything on the page scrolls or the window resizes.
     useLayoutEffect(() => {
+        if (!mounted) return;
         update();
         window.addEventListener('scroll', update, true);
         window.addEventListener('resize', update);
@@ -110,34 +150,44 @@ export default function FloatingPanel({
             window.removeEventListener('scroll', update, true);
             window.removeEventListener('resize', update);
         };
-    }, [update]);
+    }, [mounted, update]);
 
     useEffect(() => {
+        if (!open || !mounted) return;
         const onKey = (e: KeyboardEvent) => {
             if (e.key === 'Escape') {
+                e.stopPropagation();
                 onClose();
             }
         };
-        window.addEventListener('keydown', onKey);
-        return () => window.removeEventListener('keydown', onKey);
-    }, [onClose]);
+        window.addEventListener('keydown', onKey, true);
+        return () => window.removeEventListener('keydown', onKey, true);
+    }, [open, mounted, onClose]);
 
-    if (!anchor) return null;
+    if (!mounted || !effectiveAnchor) return null;
 
     return createPortal(
         <>
-            <div className="fixed inset-0 z-40" onClick={onClose} />
+            <div
+                className={`fixed inset-0 z-40 ${closing ? 'pointer-events-none' : ''}`}
+                onClick={onClose}
+            />
             <div
                 ref={panelRef}
-                className={`menu-pop fixed z-50 ${className}`}
+                className={`${closing ? 'panel-exit' : 'panel-enter'} fixed z-50 ${className}`}
                 style={
                     pos
                         ? {
                               top: pos.top,
                               left: pos.left,
+                              minWidth: pos.minWidth,
+                              maxWidth: pos.maxWidth,
                               transformOrigin: pos.transformOrigin,
                           }
-                        : { visibility: 'hidden' }
+                        : {
+                              visibility: 'hidden',
+                              maxWidth: `calc(100vw - ${EDGE * 2}px)`,
+                          }
                 }
             >
                 {children}
