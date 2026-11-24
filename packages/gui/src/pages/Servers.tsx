@@ -1,4 +1,12 @@
-import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+    type ReactNode,
+} from 'react';
+import { createPortal } from 'react-dom';
 import {
     ArrowsUpDownIcon,
     BoltIcon,
@@ -13,7 +21,7 @@ import {
 } from '@heroicons/react/24/outline';
 import { DNS_PRESETS, type DnsPreset } from '@seymi/dnss-core/presets';
 import { validateIPv4 } from '@seymi/dnss-core/validate';
-import { api, type Adapter, type DnsConfig } from '../api';
+import { api, type Adapter, type DnsConfig, type DnsStatus } from '../api';
 import FloatingPanel from '../components/FloatingPanel';
 import type { I18n, MsgKey } from '../i18n';
 
@@ -24,19 +32,15 @@ interface PingState {
 }
 
 interface ServersPageProps {
-    /** Translations + text direction + localized digits. */
     i18n: I18n;
     adapters: Adapter[];
     activeAdapterName: string | null;
+    activeDns: DnsStatus | null;
     configs: DnsConfig[];
     persistConfigs: (next: DnsConfig[]) => Promise<boolean>;
-    /** Ids of built-in presets the user removed from this list. */
     hiddenPresets: string[];
     onHidePreset: (id: string) => void;
-    /** True while ANY blocking operation runs — disables the controls. */
     busy: boolean;
-    /** Key of the config whose Apply is running: that button spins, the
-        other Apply buttons merely disable. */
     applyBusyId: string | null;
     onApply: (
         servers: string[],
@@ -49,6 +53,7 @@ interface ServersPageProps {
 const DEFAULT_BENCHMARK_TARGET = 'https://www.cloudflare.com';
 
 type SortMode = 'default' | 'name' | 'latency';
+type FilterTab = 'all' | 'custom' | 'builtin';
 
 const SORT_OPTIONS: { value: SortMode; label: MsgKey }[] = [
     { value: 'default', label: 'servers.sortDefault' },
@@ -69,188 +74,63 @@ interface FormState {
     index: number;
 }
 
-/** Collapsible list section (accordion) with a header count and an optional
-    header action. Floating panels opened from inside portal out of this
-    wrapper, so the collapsed-size clipping never cuts them off. */
-function Section({
-    title,
-    count,
-    open,
-    onToggle,
-    action,
-    /** Rotation applied to the chevron while collapsed — flipped for RTL
-        so it points toward the reading direction either way. */
-    closedRotate,
-    children,
-}: {
-    title: string;
-    count: string;
-    open: boolean;
-    onToggle: () => void;
-    action?: ReactNode;
-    closedRotate: string;
-    children: ReactNode;
-}) {
+function LatencyPill({ i18n, ping }: { i18n: I18n; ping?: PingState }) {
+    if (ping?.status === 'testing') {
+        return (
+            <span
+                className="inline-flex h-6 min-w-[54px] items-center justify-center rounded-md bg-[var(--dnss-raised)] px-2 text-[11px] text-[var(--dnss-ink-3)]"
+                title={i18n.t('servers.measuring')}
+            >
+                <span className="loading loading-spinner loading-xs" />
+            </span>
+        );
+    }
+    if (ping?.status === 'ok') {
+        const ms = ping.latencyMs ?? 0;
+        const tone =
+            ms < 60
+                ? 'bg-[var(--dnss-accent-soft)] text-[var(--dnss-accent-text)]'
+                : ms < 150
+                  ? 'bg-[var(--dnss-warning-soft)] text-[var(--dnss-warning)]'
+                  : 'bg-[var(--dnss-error-soft)] text-[var(--dnss-error)]';
+        return (
+            <span
+                dir="ltr"
+                className={`inline-flex h-6 min-w-[54px] items-center justify-center rounded-md px-2 font-mono text-[11px] font-medium tabular-nums ${tone}`}
+            >
+                {i18n.t('servers.ms', { n: ms })}
+            </span>
+        );
+    }
+    if (ping?.status === 'timeout') {
+        return (
+            <span
+                className="inline-flex h-6 min-w-[54px] items-center justify-center rounded-md bg-[var(--dnss-warning-soft)] px-2 text-[11px] font-medium text-[var(--dnss-warning)]"
+                title={ping.error}
+            >
+                {i18n.t('servers.timeoutBadge')}
+            </span>
+        );
+    }
+    if (ping?.status === 'error') {
+        return (
+            <span
+                className="inline-flex h-6 min-w-[54px] items-center justify-center rounded-md bg-[var(--dnss-error-soft)] px-2 text-[11px] font-medium text-[var(--dnss-error)]"
+                title={ping.error}
+            >
+                {i18n.t('servers.errorBadge')}
+            </span>
+        );
+    }
     return (
-        <section className="rounded-xl border border-base-300/40 bg-base-100 shadow-sm">
-            <div
-                role="button"
-                tabIndex={0}
-                className="flex w-full cursor-pointer select-none items-center gap-2 px-4 py-3 outline-none"
-                onClick={onToggle}
-                onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        onToggle();
-                    }
-                }}
-            >
-                <ChevronDownIcon
-                    className={`size-4 opacity-60 transition-transform duration-200 ${
-                        open ? '' : closedRotate
-                    }`}
-                />
-                <span className="text-sm font-semibold">{title}</span>
-                <span className="badge badge-ghost badge-sm">{count}</span>
-                <span className="grow" />
-                {action && (
-                    <span onClick={(e) => e.stopPropagation()}>{action}</span>
-                )}
-            </div>
-            <div
-                className={`grid overflow-hidden transition-[grid-template-rows] duration-200 ease-out ${
-                    open ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
-                }`}
-            >
-                <div className="min-h-0">
-                    <div className="flex flex-col gap-2 px-3 pb-3">
-                        {children}
-                    </div>
-                </div>
-            </div>
-        </section>
+        <span className="inline-flex h-6 min-w-[54px] items-center justify-center rounded-md bg-[var(--dnss-raised)] px-2 font-mono text-[11px] text-[var(--dnss-ink-3)]">
+            {i18n.t('servers.pingBadge')}
+        </span>
     );
 }
 
-/** One server row: identity + status badge + ping/apply (+ edit/delete). */
-function ServerCard({
-    i18n,
-    entry,
-    ping,
-    busy,
-    applyBusy,
-    applyOpen,
-    applyButtonRef,
-    onPing,
-    onApplyClick,
-    applyMenu,
-    extraButtons,
-}: {
-    i18n: I18n;
-    entry: Entry;
-    ping?: PingState;
-    busy: boolean;
-    applyBusy: boolean;
-    applyOpen: boolean;
-    /** Registers the apply button as the anchor of its floating menu. */
-    applyButtonRef: (el: HTMLButtonElement | null) => void;
-    onPing: () => void;
-    onApplyClick: () => void;
-    applyMenu: ReactNode;
-    extraButtons?: ReactNode;
-}) {
-    return (
-        <div className="card border border-base-300/40 bg-base-100 shadow-sm">
-            <div className="card-body flex-row items-center gap-3 p-3.5">
-                <div className="min-w-0 grow">
-                    <div className="truncate text-sm font-semibold">
-                        {entry.preset.name}
-                    </div>
-                    <div className="mt-0.5 truncate font-mono text-xs opacity-70">
-                        <span dir="ltr">
-                            {entry.preset.primary}
-                            {entry.preset.alternative
-                                ? ` · ${entry.preset.alternative}`
-                                : ''}
-                        </span>
-                    </div>
-                    {entry.preset.description && (
-                        <div className="mt-1 text-xs opacity-60">
-                            {entry.preset.description}
-                        </div>
-                    )}
-                </div>
-                <div className="flex shrink-0 items-center gap-1.5">
-                    {ping?.status === 'ok' ? (
-                        <span
-                            dir="ltr"
-                            className="badge badge-sm badge-success"
-                        >
-                            {i18n.t('servers.ms', {
-                                n: ping.latencyMs ?? 0,
-                            })}
-                        </span>
-                    ) : ping?.status === 'testing' ? (
-                        <span
-                            className="badge badge-sm badge-ghost"
-                            title={i18n.t('servers.measuring')}
-                        >
-                            {/* <span className="loading loading-dots loading-xs" /> */}
-                            <span className="loading loading-spinner loading-xs" />
-                        </span>
-                    ) : ping?.status === 'timeout' ? (
-                        <span
-                            className="badge badge-sm badge-warning"
-                            title={ping.error}
-                        >
-                            {i18n.t('servers.timeoutBadge')}
-                        </span>
-                    ) : ping?.status === 'error' ? (
-                        <span
-                            className="badge badge-sm badge-error"
-                            title={ping.error}
-                        >
-                            {i18n.t('servers.errorBadge')}
-                        </span>
-                    ) : (
-                        <span className="badge badge-sm badge-ghost">
-                            {i18n.t('servers.pingBadge')}
-                        </span>
-                    )}
-
-                    <button
-                        className="btn btn-circle btn-ghost btn-sm"
-                        title={i18n.t('servers.pingTitle')}
-                        disabled={busy || ping?.status === 'testing'}
-                        onClick={onPing}
-                    >
-                        <SignalIcon className="size-4" />
-                    </button>
-
-                    <button
-                        ref={applyButtonRef}
-                        className="btn btn-primary btn-sm"
-                        disabled={busy}
-                        aria-expanded={applyOpen}
-                        onClick={onApplyClick}
-                    >
-                        {applyBusy && (
-                            <span className="loading loading-spinner loading-xs" />
-                        )}
-                        {i18n.t('common.apply')}
-                    </button>
-
-                    {applyMenu}
-
-                    {extraButtons}
-                </div>
-            </div>
-        </div>
-    );
-}
-
-/** Inline add/edit form, rendered directly below the affected server. */
-function ServerForm({
+/** Add/Edit modal dialog rendered in a portal with Escape dismissal. */
+function ServerModal({
     i18n,
     mode,
     initialName,
@@ -270,64 +150,127 @@ function ServerForm({
     name: string;
     primary: string;
     alternative: string;
-    saving?: boolean;
+    saving: boolean;
     onName: (v: string) => void;
     onPrimary: (v: string) => void;
     onAlternative: (v: string) => void;
     onSubmit: () => void;
     onCancel: () => void;
 }) {
-    return (
-        <div className="card border border-dashed border-base-300 bg-base-200/40">
-            <div className="card-body gap-2 p-3">
-                <div className="text-xs font-semibold opacity-70">
-                    {mode === 'edit'
-                        ? i18n.t('form.edit', { name: initialName })
-                        : i18n.t('form.new')}
-                </div>
-                <input
-                    className="input input-sm w-full"
-                    placeholder={i18n.t('form.namePh')}
-                    value={name}
-                    maxLength={64}
-                    onChange={(e) => onName(e.target.value)}
-                />
-                <input
-                    dir="ltr"
-                    className="input input-sm w-full font-mono"
-                    placeholder={i18n.t('form.primaryPh')}
-                    value={primary}
-                    onChange={(e) => onPrimary(e.target.value)}
-                />
-                <input
-                    dir="ltr"
-                    className="input input-sm w-full font-mono"
-                    placeholder={i18n.t('form.altPh')}
-                    value={alternative}
-                    onChange={(e) => onAlternative(e.target.value)}
-                />
-                <div className="flex justify-end gap-2">
-                    <button
-                        className="btn btn-ghost btn-sm"
-                        onClick={onCancel}
-                        disabled={saving}
-                    >
-                        <XMarkIcon className="size-4" />
-                        {i18n.t('common.cancel')}
-                    </button>
-                    <button
-                        className="btn btn-primary btn-sm"
-                        onClick={onSubmit}
-                        disabled={saving}
-                    >
-                        <CheckIcon className="size-4" />
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape' && !saving) {
+                onCancel();
+            }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [onCancel, saving]);
+
+    return createPortal(
+        <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
+            onClick={() => {
+                if (!saving) onCancel();
+            }}
+        >
+            <div
+                role="dialog"
+                aria-modal="true"
+                className="dnss-popover menu-pop w-full max-w-md rounded-2xl p-5"
+                onClick={(e) => e.stopPropagation()}
+            >
+                <div className="flex items-center justify-between gap-3">
+                    <h3 className="m-0 text-[15px] font-semibold text-[var(--dnss-ink-1)]">
                         {mode === 'edit'
-                            ? i18n.t('common.update')
-                            : i18n.t('common.save')}
+                            ? i18n.t('form.edit', { name: initialName })
+                            : i18n.t('form.new')}
+                    </h3>
+                    <button
+                        type="button"
+                        disabled={saving}
+                        onClick={onCancel}
+                        className="grid size-7 shrink-0 place-items-center rounded-lg text-[var(--dnss-ink-3)] transition-colors hover:bg-[var(--dnss-hover)] hover:text-[var(--dnss-ink-1)]"
+                    >
+                        <XMarkIcon className="size-4 shrink-0" />
                     </button>
                 </div>
+
+                <form
+                    className="mt-4 flex flex-col gap-3"
+                    onSubmit={(e) => {
+                        e.preventDefault();
+                        onSubmit();
+                    }}
+                >
+                    <label className="flex flex-col gap-1">
+                        <span className="text-[12px] font-medium text-[var(--dnss-ink-2)]">
+                            {i18n.t('form.nameLabel')}
+                        </span>
+                        <input
+                            autoFocus
+                            className="dnss-input h-9 rounded-lg px-3 text-[13px]"
+                            placeholder={i18n.t('form.namePh')}
+                            value={name}
+                            maxLength={64}
+                            onChange={(e) => onName(e.target.value)}
+                        />
+                    </label>
+
+                    <label className="flex flex-col gap-1">
+                        <span className="text-[12px] font-medium text-[var(--dnss-ink-2)]">
+                            {i18n.t('form.primaryLabel')}
+                        </span>
+                        <input
+                            dir="ltr"
+                            className="dnss-input h-9 rounded-lg px-3 font-mono text-[13px] tabular-nums"
+                            placeholder={i18n.t('form.primaryPh')}
+                            value={primary}
+                            onChange={(e) => onPrimary(e.target.value)}
+                        />
+                    </label>
+
+                    <label className="flex flex-col gap-1">
+                        <span className="text-[12px] font-medium text-[var(--dnss-ink-2)]">
+                            {i18n.t('form.altLabel')}
+                        </span>
+                        <input
+                            dir="ltr"
+                            className="dnss-input h-9 rounded-lg px-3 font-mono text-[13px] tabular-nums"
+                            placeholder={i18n.t('form.altPh')}
+                            value={alternative}
+                            onChange={(e) => onAlternative(e.target.value)}
+                        />
+                    </label>
+
+                    <div className="mt-2 flex items-center justify-end gap-2">
+                        <button
+                            type="button"
+                            disabled={saving}
+                            onClick={onCancel}
+                            className="inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-[13px] font-medium text-[var(--dnss-ink-2)] transition-colors hover:bg-[var(--dnss-hover)] hover:text-[var(--dnss-ink-1)]"
+                        >
+                            {i18n.t('common.cancel')}
+                        </button>
+                        <button
+                            type="submit"
+                            disabled={saving}
+                            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[var(--dnss-accent)] px-3.5 text-[13px] font-medium text-[var(--dnss-accent-ink)] transition-colors hover:bg-[var(--dnss-accent-hover)] disabled:opacity-50"
+                        >
+                            {saving ? (
+                                <span className="loading loading-spinner loading-xs" />
+                            ) : (
+                                <CheckIcon className="size-4 shrink-0" />
+                            )}
+                            {mode === 'edit'
+                                ? i18n.t('common.update')
+                                : i18n.t('common.save')}
+                        </button>
+                    </div>
+                </form>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 }
 
@@ -335,6 +278,7 @@ export default function ServersPage({
     i18n,
     adapters,
     activeAdapterName,
+    activeDns,
     configs,
     persistConfigs,
     hiddenPresets,
@@ -345,8 +289,6 @@ export default function ServersPage({
     showToast,
 }: ServersPageProps) {
     const { t, num } = i18n;
-    // Collapsed accordions point toward the reading direction.
-    const closedChevron = i18n.dir === 'rtl' ? 'rotate-90' : '-rotate-90';
     const [pings, setPings] = useState<Record<string, PingState>>({});
     const [benchmarking, setBenchmarking] = useState(false);
     const [benchmarkTarget, setBenchmarkTarget] = useState(
@@ -355,20 +297,16 @@ export default function ServersPage({
             DEFAULT_BENCHMARK_TARGET
     );
     const [search, setSearch] = useState('');
+    const [filterTab, setFilterTab] = useState<FilterTab>('all');
     const [sortBy, setSortBy] = useState<SortMode>('default');
     const [sortOpen, setSortOpen] = useState(false);
-    const [savedOpen, setSavedOpen] = useState(true);
-    const [presetsOpen, setPresetsOpen] = useState(true);
 
-    // null = closed; { mode: 'add' } renders at the end of the saved list,
-    // { mode: 'edit', index } renders right below the edited server.
     const [form, setForm] = useState<FormState | null>(null);
     const [name, setName] = useState('');
     const [primary, setPrimary] = useState('');
     const [alternative, setAlternative] = useState('');
     const [saving, setSaving] = useState(false);
 
-    // Floating panels (apply menu / delete confirm), one open at a time.
     const [applyMenuKey, setApplyMenuKey] = useState<string | null>(null);
     const [applyAll, setApplyAll] = useState(false);
     const [applySelection, setApplySelection] = useState<Set<string>>(
@@ -376,8 +314,6 @@ export default function ServersPage({
     );
     const [confirmKey, setConfirmKey] = useState<string | null>(null);
 
-    // On-screen anchors for the portaled panels, keyed per trigger; the
-    // panels render in a portal but must align to their own button.
     const triggerEls = useRef(new Map<string, HTMLElement>());
     const setTrigger = useCallback(
         (key: string) => (el: HTMLElement | null) => {
@@ -391,12 +327,8 @@ export default function ServersPage({
     );
 
     const currentSort = SORT_OPTIONS.find((o) => o.value === sortBy);
+    const activeStaticPrimary = activeDns?.static_servers[0] ?? null;
 
-    // Stable, content-derived keys: a bare index key ("custom-0") makes
-    // benchmark results latch onto the WRONG server after removing an entry
-    // that is not the last one. Keeping the index in the key still resets
-    // stale results when the list shifts (they render as idle, never
-    // misattributed).
     const savedEntries: Entry[] = useMemo(
         () =>
             configs.map((c, i) => ({
@@ -432,7 +364,6 @@ export default function ServersPage({
         [savedEntries, presetEntries]
     );
 
-    // Type-to-find across name and addresses, then optional sorting.
     const query = search.trim().toLowerCase();
     const matches = useCallback(
         (entry: Entry) =>
@@ -442,6 +373,7 @@ export default function ServersPage({
                 .includes(query),
         [query]
     );
+
     const latencyOf = useCallback(
         (entry: Entry) => {
             const ping = pings[entry.key];
@@ -451,6 +383,7 @@ export default function ServersPage({
         },
         [pings]
     );
+
     const orderEntries = useCallback(
         (list: Entry[]) => {
             const arr = [...list];
@@ -464,15 +397,25 @@ export default function ServersPage({
         [sortBy, latencyOf]
     );
 
-    const visibleSaved = orderEntries(savedEntries.filter(matches));
-    const visiblePresets = orderEntries(presetEntries.filter(matches));
+    const visibleSaved = useMemo(
+        () => orderEntries(savedEntries.filter(matches)),
+        [orderEntries, savedEntries, matches]
+    );
+    const visiblePresets = useMemo(
+        () => orderEntries(presetEntries.filter(matches)),
+        [orderEntries, presetEntries, matches]
+    );
+
+    const visibleEntries = useMemo(() => {
+        if (filterTab === 'custom') return visibleSaved;
+        if (filterTab === 'builtin') return visiblePresets;
+        return [...visibleSaved, ...visiblePresets];
+    }, [filterTab, visibleSaved, visiblePresets]);
 
     const setPing = useCallback((key: string, state: PingState) => {
         setPings((prev) => ({ ...prev, [key]: state }));
     }, []);
 
-    // Bounded concurrency runner: firing one IPC per entry all at once
-    // would spawn that many blocking threads and sockets on the backend.
     const runBounded = async (items: Entry[], target: string) => {
         const concurrency = Math.min(4, items.length);
         const queue = [...items];
@@ -484,14 +427,19 @@ export default function ServersPage({
                         entry.preset.primary,
                         target
                     );
-                    setPing(entry.key, {
-                        status: 'ok',
-                        latencyMs: sample.resolve_ms + (sample.connect_ms ?? 0),
-                    });
+                    if (sample.connect_ms === null) {
+                        setPing(entry.key, {
+                            status: 'error',
+                            error: `Resolved ${sample.address} in ${sample.resolve_ms} ms, but TCP connect failed`,
+                        });
+                    } else {
+                        setPing(entry.key, {
+                            status: 'ok',
+                            latencyMs: sample.resolve_ms + sample.connect_ms,
+                        });
+                    }
                 } catch (error) {
                     const message = String(error);
-                    // Backend refusals (invalid server, suspicious resolved
-                    // address) are errors, not timeouts.
                     const isTimeout = /timed?\s?out|timeout/i.test(message);
                     setPing(entry.key, {
                         status: isTimeout ? 'timeout' : 'error',
@@ -507,16 +455,18 @@ export default function ServersPage({
     };
 
     const runBenchmark = useCallback(async () => {
+        const targets = visibleEntries.length > 0 ? visibleEntries : allEntries;
         setBenchmarking(true);
-        setPings(
-            Object.fromEntries(
-                allEntries.map((e) => [e.key, { status: 'testing' as const }])
-            )
-        );
-        await runBounded(allEntries, benchmarkTarget);
+        setPings((prev) => ({
+            ...prev,
+            ...Object.fromEntries(
+                targets.map((e) => [e.key, { status: 'testing' as const }])
+            ),
+        }));
+        await runBounded(targets, benchmarkTarget);
         setBenchmarking(false);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [allEntries, benchmarkTarget]);
+    }, [visibleEntries, allEntries, benchmarkTarget]);
 
     const pingOne = useCallback(
         async (entry: Entry) => {
@@ -526,10 +476,17 @@ export default function ServersPage({
                     entry.preset.primary,
                     benchmarkTarget
                 );
-                setPing(entry.key, {
-                    status: 'ok',
-                    latencyMs: sample.resolve_ms + (sample.connect_ms ?? 0),
-                });
+                if (sample.connect_ms === null) {
+                    setPing(entry.key, {
+                        status: 'error',
+                        error: `Resolved ${sample.address} in ${sample.resolve_ms} ms, but TCP connect failed`,
+                    });
+                } else {
+                    setPing(entry.key, {
+                        status: 'ok',
+                        latencyMs: sample.resolve_ms + sample.connect_ms,
+                    });
+                }
             } catch (error) {
                 const message = String(error);
                 const isTimeout = /timed?\s?out|timeout/i.test(message);
@@ -542,13 +499,27 @@ export default function ServersPage({
         [benchmarkTarget, setPing]
     );
 
+    const quickApply = useCallback(
+        (entry: Entry) => {
+            const servers = [
+                entry.preset.primary,
+                entry.preset.alternative,
+            ].filter((s): s is string => Boolean(s));
+            const defaultTarget = activeAdapterName ?? adapters[0]?.name;
+            onApply(
+                servers,
+                defaultTarget ? [defaultTarget] : 'all',
+                entry.key
+            );
+        },
+        [activeAdapterName, adapters, onApply]
+    );
+
     const openApplyMenu = useCallback(
         (entryKey: string) => {
             setConfirmKey(null);
             setApplyMenuKey(entryKey);
             setApplyAll(false);
-            // Preselect the adapter currently in use so a plain
-            // open -> Apply applies to the active adapter.
             const initial = activeAdapterName ?? adapters[0]?.name;
             setApplySelection(new Set(initial ? [initial] : []));
         },
@@ -578,13 +549,17 @@ export default function ServersPage({
         setApplyMenuKey(null);
     };
 
+    const closePanels = () => {
+        setApplyMenuKey(null);
+        setConfirmKey(null);
+    };
+
     const openAdd = () => {
         closePanels();
         setForm({ mode: 'add', index: -1 });
         setName('');
         setPrimary('');
         setAlternative('');
-        setSavedOpen(true);
     };
 
     const openEdit = (index: number) => {
@@ -595,7 +570,6 @@ export default function ServersPage({
         setName(config.name);
         setPrimary(config.primary);
         setAlternative(config.alternative ?? '');
-        setSavedOpen(true);
     };
 
     const closeForm = () => {
@@ -618,8 +592,6 @@ export default function ServersPage({
             showToast(t('toast.nameTooLong'), 'error');
             return;
         }
-        // Validate locally so obviously wrong input never reaches the
-        // backend (which would reject the whole save).
         if (!validateIPv4(trimmedPrimary)) {
             showToast(t('toast.badPrimary'), 'error');
             return;
@@ -681,331 +653,416 @@ export default function ServersPage({
         localStorage.setItem('dnss.benchmarkTarget', value);
     };
 
-    const closePanels = () => {
-        setApplyMenuKey(null);
-        setConfirmKey(null);
-    };
-
-    const toggleSaved = () => {
-        closePanels();
-        setSavedOpen((v) => !v);
-    };
-
-    const togglePresets = () => {
-        closePanels();
-        setPresetsOpen((v) => !v);
-    };
-
-    const renderCard = (entry: Entry) => {
+    const renderRow = (entry: Entry): ReactNode => {
         const ping = pings[entry.key];
-        const isEditingThis =
-            form?.mode === 'edit' &&
-            entry.custom &&
-            form.index === entry.customIndex;
+        const isActive = activeStaticPrimary === entry.preset.primary;
+        const isApplying = applyBusyId === entry.key;
+
         return (
-            <div key={entry.key} className="flex flex-col gap-2">
-                <ServerCard
-                    i18n={i18n}
-                    entry={entry}
-                    ping={ping}
-                    busy={busy}
-                    applyBusy={applyBusyId === entry.key}
-                    applyOpen={applyMenuKey === entry.key}
-                    applyButtonRef={setTrigger(entry.key)}
-                    onPing={() => pingOne(entry)}
-                    onApplyClick={() => {
-                        if (applyMenuKey === entry.key) {
-                            setApplyMenuKey(null);
-                        } else {
-                            openApplyMenu(entry.key);
-                        }
-                    }}
-                    applyMenu={
-                        applyMenuKey === entry.key ? (
-                            <FloatingPanel
-                                anchor={
-                                    triggerEls.current.get(entry.key) ?? null
+            <li
+                key={entry.key}
+                className={`flex items-center justify-between gap-3 px-4 py-3 transition-colors hover:bg-[var(--dnss-hover)] ${
+                    isActive ? 'bg-[var(--dnss-accent-soft)]/50' : ''
+                }`}
+            >
+                <div className="min-w-0 grow">
+                    <div className="flex items-center gap-2">
+                        <span className="truncate text-[13px] font-semibold text-[var(--dnss-ink-1)]">
+                            {entry.preset.name}
+                        </span>
+                        {entry.custom && (
+                            <span className="shrink-0 rounded-md bg-[var(--dnss-raised)] px-1.5 py-0.5 text-[11px] font-medium text-[var(--dnss-ink-3)]">
+                                {t('servers.filterCustom')}
+                            </span>
+                        )}
+                        {isActive && (
+                            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-[var(--dnss-accent-soft)] px-2 py-0.5 text-[11px] font-medium text-[var(--dnss-accent)]">
+                                <span className="size-1.5 rounded-full bg-[var(--dnss-accent)]" />
+                                {t('common.active')}
+                            </span>
+                        )}
+                    </div>
+
+                    <div className="mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5">
+                        <span
+                            dir="ltr"
+                            className="font-mono text-[12px] tabular-nums text-[var(--dnss-ink-2)]"
+                        >
+                            {entry.preset.primary}
+                            {entry.preset.alternative
+                                ? ` · ${entry.preset.alternative}`
+                                : ''}
+                        </span>
+                        {entry.preset.description && (
+                            <span className="truncate text-[12px] text-[var(--dnss-ink-3)]">
+                                {entry.preset.description}
+                            </span>
+                        )}
+                    </div>
+                </div>
+
+                <div className="flex shrink-0 items-center gap-1.5">
+                    <LatencyPill i18n={i18n} ping={ping} />
+
+                    <button
+                        type="button"
+                        title={t('servers.pingTitle')}
+                        disabled={busy || ping?.status === 'testing'}
+                        onClick={() => pingOne(entry)}
+                        className="grid size-8 shrink-0 place-items-center rounded-lg text-[var(--dnss-ink-2)] transition-colors hover:bg-[var(--dnss-raised)] hover:text-[var(--dnss-ink-1)] disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                        <SignalIcon className="size-4 shrink-0" />
+                    </button>
+
+                    {/* Split Apply control: main click applies immediately to active adapter;
+                        chevron opens target adapter selector. */}
+                    <div className="inline-flex items-stretch overflow-hidden rounded-lg">
+                        <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => quickApply(entry)}
+                            className={`inline-flex h-8 items-center gap-1.5 px-3 text-[12px] font-medium transition-colors ${
+                                isActive
+                                    ? 'bg-[var(--dnss-raised)] text-[var(--dnss-ink-1)] hover:bg-[var(--dnss-hover)]'
+                                    : 'bg-[var(--dnss-accent)] text-[var(--dnss-accent-ink)] hover:bg-[var(--dnss-accent-hover)]'
+                            } disabled:cursor-not-allowed disabled:opacity-50`}
+                        >
+                            {isApplying && (
+                                <span className="loading loading-spinner loading-xs" />
+                            )}
+                            {t('common.apply')}
+                        </button>
+                        <button
+                            ref={setTrigger(entry.key)}
+                            type="button"
+                            disabled={busy}
+                            title={t('servers.applyChooseAdapters')}
+                            aria-label={t('servers.applyChooseAdapters')}
+                            aria-expanded={applyMenuKey === entry.key}
+                            onClick={() => {
+                                if (applyMenuKey === entry.key) {
+                                    setApplyMenuKey(null);
+                                } else {
+                                    openApplyMenu(entry.key);
                                 }
-                                onClose={() => setApplyMenuKey(null)}
-                                placement="top"
-                                className="w-64 rounded-xl border border-base-300/60 bg-base-100 p-3 shadow-xl"
-                            >
-                                <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide opacity-60">
-                                    {t('servers.applyTo')}
-                                </div>
-                                <label className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-base-200">
-                                    <input
-                                        type="checkbox"
-                                        className="checkbox checkbox-sm checkbox-primary"
-                                        checked={applyAll}
-                                        onChange={() => setApplyAll((v) => !v)}
-                                    />
-                                    <span className="text-sm font-medium">
-                                        {t('servers.allAdapters')}
-                                    </span>
-                                    <span className="ms-auto text-[11px] opacity-50">
-                                        {num(adapters.length)}
-                                    </span>
-                                </label>
-                                <div className="my-1 border-t border-base-300/60" />
-                                <div className="max-h-40 overflow-y-auto">
-                                    {adapters.map((a) => (
-                                        <label
-                                            key={a.name}
-                                            className={`flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-base-200 ${
-                                                applyAll
-                                                    ? 'pointer-events-none opacity-50'
-                                                    : ''
-                                            }`}
-                                        >
-                                            <input
-                                                type="checkbox"
-                                                className="checkbox checkbox-sm checkbox-primary"
-                                                disabled={applyAll}
-                                                checked={
-                                                    applyAll ||
-                                                    applySelection.has(a.name)
-                                                }
-                                                onChange={() =>
-                                                    toggleApplyAdapter(a.name)
-                                                }
-                                            />
-                                            <span className="truncate text-sm">
-                                                {a.name}
+                            }}
+                            className={`grid w-6 shrink-0 place-items-center border-s transition-colors ${
+                                isActive
+                                    ? 'border-[var(--dnss-border)] bg-[var(--dnss-raised)] text-[var(--dnss-ink-2)] hover:bg-[var(--dnss-hover)]'
+                                    : 'border-black/15 bg-[var(--dnss-accent)] text-[var(--dnss-accent-ink)] hover:bg-[var(--dnss-accent-hover)]'
+                            } disabled:cursor-not-allowed disabled:opacity-50`}
+                        >
+                            <ChevronDownIcon className="size-3.5 shrink-0" />
+                        </button>
+                    </div>
+
+                    {applyMenuKey === entry.key && (
+                        <FloatingPanel
+                            anchor={triggerEls.current.get(entry.key) ?? null}
+                            onClose={() => setApplyMenuKey(null)}
+                            placement="bottom"
+                            className="dnss-popover w-64 rounded-xl p-3"
+                        >
+                            <div className="mb-2 text-[12px] font-semibold text-[var(--dnss-ink-2)]">
+                                {t('servers.applyTo')}
+                            </div>
+                            <label className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-[var(--dnss-hover)]">
+                                <input
+                                    type="checkbox"
+                                    className="checkbox checkbox-xs checkbox-primary"
+                                    checked={applyAll}
+                                    onChange={() => setApplyAll((v) => !v)}
+                                />
+                                <span className="text-[13px] font-medium text-[var(--dnss-ink-1)]">
+                                    {t('servers.allAdapters')}
+                                </span>
+                                <span className="ms-auto text-[11px] tabular-nums text-[var(--dnss-ink-3)]">
+                                    {num(adapters.length)}
+                                </span>
+                            </label>
+                            <div className="my-1.5 border-t border-[var(--dnss-border)]" />
+                            <div className="max-h-40 overflow-y-auto">
+                                {adapters.map((a) => (
+                                    <label
+                                        key={a.name}
+                                        className={`flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-[var(--dnss-hover)] ${
+                                            applyAll
+                                                ? 'pointer-events-none opacity-45'
+                                                : ''
+                                        }`}
+                                    >
+                                        <input
+                                            type="checkbox"
+                                            className="checkbox checkbox-xs checkbox-primary"
+                                            disabled={applyAll}
+                                            checked={
+                                                applyAll ||
+                                                applySelection.has(a.name)
+                                            }
+                                            onChange={() =>
+                                                toggleApplyAdapter(a.name)
+                                            }
+                                        />
+                                        <span className="truncate text-[13px] text-[var(--dnss-ink-1)]">
+                                            {a.name}
+                                        </span>
+                                        {a.is_default && (
+                                            <span className="ms-auto shrink-0 rounded bg-[var(--dnss-raised)] px-1.5 py-0.5 text-[11px] text-[var(--dnss-ink-3)]">
+                                                {t('common.default')}
                                             </span>
-                                            {a.is_default && (
-                                                <span className="badge badge-ghost badge-xs ms-auto shrink-0">
-                                                    {t('common.default')}
-                                                </span>
-                                            )}
-                                        </label>
-                                    ))}
-                                    {adapters.length === 0 && (
-                                        <div className="px-2 py-2 text-xs opacity-60">
-                                            {t('home.noAdapters')}
-                                        </div>
-                                    )}
-                                </div>
-                                <div className="mt-2 flex justify-end gap-2">
-                                    <button
-                                        className="btn btn-ghost btn-xs"
-                                        onClick={() => setApplyMenuKey(null)}
-                                    >
-                                        {t('common.cancel')}
-                                    </button>
-                                    <button
-                                        className="btn btn-primary btn-xs"
-                                        disabled={
-                                            !applyAll &&
-                                            applySelection.size === 0
-                                        }
-                                        onClick={() => submitApply(entry)}
-                                    >
-                                        {t('common.apply')}
-                                    </button>
-                                </div>
-                            </FloatingPanel>
-                        ) : null
-                    }
-                    extraButtons={
-                        entry.custom ? (
-                            <>
+                                        )}
+                                    </label>
+                                ))}
+                                {adapters.length === 0 && (
+                                    <div className="px-2 py-2 text-[12px] text-[var(--dnss-ink-3)]">
+                                        {t('home.noAdapters')}
+                                    </div>
+                                )}
+                            </div>
+                            <div className="mt-2.5 flex justify-end gap-1.5">
                                 <button
-                                    className="btn btn-circle btn-ghost btn-sm"
-                                    title={t('common.edit')}
-                                    onClick={() => openEdit(entry.customIndex)}
+                                    type="button"
+                                    className="rounded-lg px-2.5 py-1 text-[12px] text-[var(--dnss-ink-2)] hover:bg-[var(--dnss-hover)]"
+                                    onClick={() => setApplyMenuKey(null)}
                                 >
-                                    <PencilSquareIcon className="size-4" />
+                                    {t('common.cancel')}
                                 </button>
                                 <button
-                                    ref={setTrigger(`del:${entry.key}`)}
-                                    className="btn btn-circle btn-ghost btn-sm text-error hover:bg-error hover:text-error-content"
-                                    title={t('common.delete')}
+                                    type="button"
+                                    className="rounded-lg bg-[var(--dnss-accent)] px-3 py-1 text-[12px] font-medium text-[var(--dnss-accent-ink)] hover:bg-[var(--dnss-accent-hover)] disabled:opacity-45"
+                                    disabled={
+                                        !applyAll && applySelection.size === 0
+                                    }
+                                    onClick={() => submitApply(entry)}
+                                >
+                                    {t('common.apply')}
+                                </button>
+                            </div>
+                        </FloatingPanel>
+                    )}
+
+                    {entry.custom && (
+                        <button
+                            type="button"
+                            title={t('common.edit')}
+                            onClick={() => openEdit(entry.customIndex)}
+                            className="grid size-8 shrink-0 place-items-center rounded-lg text-[var(--dnss-ink-2)] transition-colors hover:bg-[var(--dnss-raised)] hover:text-[var(--dnss-ink-1)]"
+                        >
+                            <PencilSquareIcon className="size-4 shrink-0" />
+                        </button>
+                    )}
+
+                    <button
+                        ref={setTrigger(`del:${entry.key}`)}
+                        type="button"
+                        title={
+                            entry.custom
+                                ? t('common.delete')
+                                : t('common.remove')
+                        }
+                        aria-label={
+                            entry.custom
+                                ? t('common.delete')
+                                : t('common.remove')
+                        }
+                        disabled={busy}
+                        onClick={() => {
+                            setApplyMenuKey(null);
+                            setConfirmKey(entry.key);
+                        }}
+                        className="grid size-8 shrink-0 place-items-center rounded-lg text-[var(--dnss-ink-3)] transition-colors hover:bg-[var(--dnss-error-soft)] hover:text-[var(--dnss-error)] disabled:opacity-40"
+                    >
+                        <TrashIcon className="size-4 shrink-0" />
+                    </button>
+
+                    {confirmKey === entry.key && (
+                        <FloatingPanel
+                            anchor={
+                                triggerEls.current.get(`del:${entry.key}`) ??
+                                null
+                            }
+                            onClose={() => setConfirmKey(null)}
+                            placement="bottom"
+                            className="dnss-popover w-56 rounded-xl p-3"
+                        >
+                            <div className="text-[13px] font-medium text-[var(--dnss-ink-1)]">
+                                {entry.custom
+                                    ? t('servers.deleteConfirm', {
+                                          name: entry.preset.name,
+                                      })
+                                    : t('servers.removePresetConfirm', {
+                                          name: entry.preset.name,
+                                      })}
+                            </div>
+                            {!entry.custom && (
+                                <div className="mt-1 text-[12px] text-[var(--dnss-ink-3)]">
+                                    {t('servers.removePresetHint')}
+                                </div>
+                            )}
+                            <div className="mt-2.5 flex justify-end gap-1.5">
+                                <button
+                                    type="button"
+                                    className="rounded-lg px-2.5 py-1 text-[12px] text-[var(--dnss-ink-2)] hover:bg-[var(--dnss-hover)]"
+                                    onClick={() => setConfirmKey(null)}
+                                >
+                                    {t('common.cancel')}
+                                </button>
+                                <button
+                                    type="button"
+                                    className="rounded-lg bg-[var(--dnss-error)] px-2.5 py-1 text-[12px] font-medium text-white hover:opacity-90"
                                     onClick={() => {
-                                        setApplyMenuKey(null);
-                                        setConfirmKey(entry.key);
+                                        if (entry.custom) {
+                                            void removeConfig(
+                                                entry.customIndex
+                                            );
+                                        } else {
+                                            onHidePreset(entry.preset.id);
+                                            setConfirmKey(null);
+                                            showToast(
+                                                t('toast.presetRemoved', {
+                                                    name: entry.preset.name,
+                                                })
+                                            );
+                                        }
                                     }}
                                 >
-                                    <TrashIcon className="size-4" />
+                                    {entry.custom
+                                        ? t('common.delete')
+                                        : t('common.remove')}
                                 </button>
-                                {confirmKey === entry.key && (
-                                    <FloatingPanel
-                                        anchor={
-                                            triggerEls.current.get(
-                                                `del:${entry.key}`
-                                            ) ?? null
-                                        }
-                                        onClose={() => setConfirmKey(null)}
-                                        placement="top"
-                                        className="w-52 rounded-xl border border-base-300/60 bg-base-100 p-3 shadow-xl"
-                                    >
-                                        <div className="text-sm">
-                                            {t('servers.deleteConfirm', {
-                                                name: entry.preset.name,
-                                            })}
-                                        </div>
-                                        <div className="mt-2 flex justify-end gap-2">
-                                            <button
-                                                className="btn btn-ghost btn-xs"
-                                                onClick={() =>
-                                                    setConfirmKey(null)
-                                                }
-                                            >
-                                                {t('common.cancel')}
-                                            </button>
-                                            <button
-                                                className="btn btn-error btn-xs"
-                                                onClick={() =>
-                                                    removeConfig(
-                                                        entry.customIndex
-                                                    )
-                                                }
-                                            >
-                                                {t('common.delete')}
-                                            </button>
-                                        </div>
-                                    </FloatingPanel>
-                                )}
-                            </>
-                        ) : (
-                            // Built-in preset: removable from the list
-                            // (restorable in Settings), never editable.
-                            <>
-                                <button
-                                    ref={setTrigger(`del:${entry.key}`)}
-                                    className="btn btn-circle btn-ghost btn-sm text-error hover:bg-error hover:text-error-content"
-                                    title={t('common.remove')}
-                                    aria-label={t('common.remove')}
-                                    disabled={busy}
-                                    onClick={() => {
-                                        setApplyMenuKey(null);
-                                        setConfirmKey(entry.key);
-                                    }}
-                                >
-                                    <TrashIcon className="size-4" />
-                                </button>
-                                {confirmKey === entry.key && (
-                                    <FloatingPanel
-                                        anchor={
-                                            triggerEls.current.get(
-                                                `del:${entry.key}`
-                                            ) ?? null
-                                        }
-                                        onClose={() => setConfirmKey(null)}
-                                        placement="top"
-                                        className="w-60 rounded-xl border border-base-300/60 bg-base-100 p-3 shadow-xl"
-                                    >
-                                        <div className="text-sm">
-                                            {t('servers.removePresetConfirm', {
-                                                name: entry.preset.name,
-                                            })}
-                                        </div>
-                                        <div className="mt-1 text-xs opacity-60">
-                                            {t('servers.removePresetHint')}
-                                        </div>
-                                        <div className="mt-2 flex justify-end gap-2">
-                                            <button
-                                                className="btn btn-ghost btn-xs"
-                                                onClick={() =>
-                                                    setConfirmKey(null)
-                                                }
-                                            >
-                                                {t('common.cancel')}
-                                            </button>
-                                            <button
-                                                className="btn btn-error btn-xs"
-                                                onClick={() => {
-                                                    onHidePreset(
-                                                        entry.preset.id
-                                                    );
-                                                    setConfirmKey(null);
-                                                    showToast(
-                                                        t(
-                                                            'toast.presetRemoved',
-                                                            {
-                                                                name: entry
-                                                                    .preset
-                                                                    .name,
-                                                            }
-                                                        )
-                                                    );
-                                                }}
-                                            >
-                                                {t('common.remove')}
-                                            </button>
-                                        </div>
-                                    </FloatingPanel>
-                                )}
-                            </>
-                        )
-                    }
-                />
-                {isEditingThis && (
-                    <ServerForm
-                        i18n={i18n}
-                        mode="edit"
-                        initialName={configs[entry.customIndex]?.name ?? ''}
-                        name={name}
-                        primary={primary}
-                        alternative={alternative}
-                        saving={saving}
-                        onName={setName}
-                        onPrimary={setPrimary}
-                        onAlternative={setAlternative}
-                        onSubmit={submitForm}
-                        onCancel={closeForm}
-                    />
-                )}
-            </div>
+                            </div>
+                        </FloatingPanel>
+                    )}
+                </div>
+            </li>
         );
     };
 
     return (
-        <div className="mx-auto flex w-full max-w-4xl flex-col gap-4">
-            <h2 className="m-0 text-lg font-bold">{t('servers.title')}</h2>
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-3.5">
+            {/* Header & Primary Actions */}
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="m-0 text-[18px] font-semibold text-[var(--dnss-ink-1)]">
+                    {t('servers.title')}
+                </h2>
 
+                <div className="flex items-center gap-2">
+                    <button
+                        type="button"
+                        onClick={runBenchmark}
+                        disabled={benchmarking}
+                        className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[var(--dnss-surface)] px-3 text-[12px] font-medium text-[var(--dnss-ink-1)] ring-1 ring-[var(--dnss-border-strong)] transition-colors hover:bg-[var(--dnss-raised)] disabled:opacity-50"
+                    >
+                        {benchmarking ? (
+                            <span className="loading loading-spinner loading-xs" />
+                        ) : (
+                            <BoltIcon className="size-4 shrink-0 text-[var(--dnss-accent)]" />
+                        )}
+                        {benchmarking
+                            ? t('servers.benchmarking')
+                            : t('servers.benchmark')}
+                    </button>
+
+                    <button
+                        type="button"
+                        onClick={openAdd}
+                        className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[var(--dnss-accent)] px-3 text-[12px] font-medium text-[var(--dnss-accent-ink)] transition-colors hover:bg-[var(--dnss-accent-hover)]"
+                    >
+                        <PlusIcon className="size-4 shrink-0" />
+                        {t('common.add')}
+                    </button>
+                </div>
+            </div>
+
+            {/* Search, Filter Pills & Sort Toolbar */}
             <div className="flex flex-wrap items-center gap-2">
-                <label className="input input-sm flex grow items-center gap-2">
-                    <MagnifyingGlassIcon className="size-4 opacity-60" />
+                <label className="dnss-input flex h-9 min-w-[180px] grow items-center gap-2 rounded-xl px-3">
+                    <MagnifyingGlassIcon className="size-4 shrink-0 text-[var(--dnss-ink-3)]" />
                     <input
                         type="search"
-                        className="grow"
+                        className="w-full bg-transparent text-[13px] text-[var(--dnss-ink-1)] outline-none placeholder:text-[var(--dnss-ink-3)]"
                         placeholder={t('servers.search')}
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                     />
                 </label>
+
+                {/* Filter Pills */}
+                <div className="inline-flex items-center rounded-xl bg-[var(--dnss-surface)] p-1 ring-1 ring-[var(--dnss-border)]">
+                    {(
+                        [
+                            {
+                                id: 'all',
+                                label: t('servers.filterAll'),
+                                count:
+                                    visibleSaved.length + visiblePresets.length,
+                            },
+                            {
+                                id: 'custom',
+                                label: t('servers.filterCustom'),
+                                count: visibleSaved.length,
+                            },
+                            {
+                                id: 'builtin',
+                                label: t('servers.filterBuiltin'),
+                                count: visiblePresets.length,
+                            },
+                        ] as const
+                    ).map((tab) => {
+                        const active = filterTab === tab.id;
+                        return (
+                            <button
+                                key={tab.id}
+                                type="button"
+                                onClick={() => setFilterTab(tab.id)}
+                                className={`inline-flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[12px] font-medium transition-colors ${
+                                    active
+                                        ? 'bg-[var(--dnss-raised)] text-[var(--dnss-ink-1)]'
+                                        : 'text-[var(--dnss-ink-2)] hover:text-[var(--dnss-ink-1)]'
+                                }`}
+                            >
+                                <span>{tab.label}</span>
+                                <span className="text-[11px] tabular-nums text-[var(--dnss-ink-3)]">
+                                    {num(tab.count)}
+                                </span>
+                            </button>
+                        );
+                    })}
+                </div>
+
+                {/* Sort Dropdown */}
                 <button
                     ref={setTrigger('sort')}
-                    className="btn btn-sm w-40 justify-between font-normal"
+                    type="button"
                     title={t('servers.sortTitle')}
                     aria-expanded={sortOpen}
                     onClick={() => setSortOpen((v) => !v)}
+                    className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-[var(--dnss-surface)] px-3 text-[12px] font-medium text-[var(--dnss-ink-1)] ring-1 ring-[var(--dnss-border)] transition-colors hover:bg-[var(--dnss-raised)]"
                 >
-                    <span className="flex items-center gap-1.5">
-                        <ArrowsUpDownIcon className="size-4 opacity-60" />
-                        {currentSort && t(currentSort.label)}
-                    </span>
+                    <ArrowsUpDownIcon className="size-4 shrink-0 text-[var(--dnss-ink-3)]" />
+                    <span>{currentSort && t(currentSort.label)}</span>
                     <ChevronDownIcon
-                        className={`size-3.5 opacity-60 transition-transform ${
+                        className={`size-3.5 shrink-0 text-[var(--dnss-ink-3)] transition-transform ${
                             sortOpen ? 'rotate-180' : ''
                         }`}
                     />
                 </button>
+
                 {sortOpen && (
                     <FloatingPanel
                         anchor={triggerEls.current.get('sort') ?? null}
                         onClose={() => setSortOpen(false)}
                         placement="bottom"
-                        className="w-44 rounded-xl border border-base-300/60 bg-base-100 p-1.5 shadow-xl"
+                        className="dnss-popover w-40 rounded-xl p-1.5"
                     >
                         {SORT_OPTIONS.map((option) => (
                             <button
                                 key={option.value}
-                                className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-start text-sm hover:bg-base-200 ${
+                                type="button"
+                                className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-start text-[13px] transition-colors hover:bg-[var(--dnss-hover)] ${
                                     sortBy === option.value
-                                        ? 'font-semibold'
-                                        : ''
+                                        ? 'font-semibold text-[var(--dnss-ink-1)]'
+                                        : 'text-[var(--dnss-ink-2)]'
                                 }`}
                                 onClick={() => {
                                     setSortBy(option.value);
@@ -1013,9 +1070,9 @@ export default function ServersPage({
                                 }}
                             >
                                 <CheckIcon
-                                    className={`size-4 ${
+                                    className={`size-4 shrink-0 ${
                                         sortBy === option.value
-                                            ? 'text-primary'
+                                            ? 'text-[var(--dnss-accent)]'
                                             : 'opacity-0'
                                     }`}
                                 />
@@ -1024,99 +1081,61 @@ export default function ServersPage({
                         ))}
                     </FloatingPanel>
                 )}
-                <button
-                    className="btn btn-primary btn-sm"
-                    onClick={runBenchmark}
-                    disabled={benchmarking}
-                >
-                    {benchmarking ? (
-                        <span className="loading loading-spinner loading-xs" />
-                    ) : (
-                        <BoltIcon className="size-4" />
-                    )}
-                    {benchmarking
-                        ? t('servers.benchmarking')
-                        : t('servers.benchmark')}
-                </button>
             </div>
 
-            <div className="card border border-base-300/40 bg-base-100 shadow-sm">
-                <div className="card-body gap-1.5 p-3.5">
-                    <div className="text-xs font-semibold opacity-70">
-                        {t('servers.benchTarget')}
-                    </div>
-                    <input
-                        dir="ltr"
-                        className="input input-sm w-full font-mono"
-                        placeholder={DEFAULT_BENCHMARK_TARGET}
-                        value={benchmarkTarget}
-                        onChange={(e) => handleTargetChange(e.target.value)}
-                    />
-                    <p className="text-xs opacity-60">
-                        {t('servers.benchTargetHint')}
-                    </p>
-                </div>
+            {/* Compact Benchmark Target Strip */}
+            <div className="flex flex-wrap items-center gap-2 rounded-xl bg-[var(--dnss-surface)] px-3 py-2 ring-1 ring-[var(--dnss-border)]">
+                <span className="shrink-0 text-[12px] font-medium text-[var(--dnss-ink-2)]">
+                    {t('servers.benchTarget')}
+                </span>
+                <input
+                    dir="ltr"
+                    className="min-w-[180px] grow bg-transparent font-mono text-[12px] text-[var(--dnss-ink-1)] outline-none placeholder:text-[var(--dnss-ink-3)]"
+                    placeholder={DEFAULT_BENCHMARK_TARGET}
+                    title={t('servers.benchTargetHint')}
+                    value={benchmarkTarget}
+                    onChange={(e) => handleTargetChange(e.target.value)}
+                />
             </div>
 
-            <Section
-                title={t('servers.saved')}
-                count={num(visibleSaved.length)}
-                open={savedOpen}
-                onToggle={toggleSaved}
-                closedRotate={closedChevron}
-                action={
-                    <button
-                        className="btn btn-outline btn-xs"
-                        onClick={openAdd}
-                    >
-                        <PlusIcon className="size-3.5" />
-                        {t('common.add')}
-                    </button>
-                }
-            >
-                {form?.mode === 'add' && (
-                    <ServerForm
-                        i18n={i18n}
-                        mode="add"
-                        initialName=""
-                        name={name}
-                        primary={primary}
-                        alternative={alternative}
-                        saving={saving}
-                        onName={setName}
-                        onPrimary={setPrimary}
-                        onAlternative={setAlternative}
-                        onSubmit={submitForm}
-                        onCancel={closeForm}
-                    />
-                )}
-
-                {visibleSaved.length > 0 ? (
-                    visibleSaved.map(renderCard)
+            {/* Server List */}
+            <section className="dnss-card overflow-hidden rounded-2xl">
+                {visibleEntries.length > 0 ? (
+                    <ul className="divide-y divide-[var(--dnss-border)]">
+                        {visibleEntries.map(renderRow)}
+                    </ul>
                 ) : (
-                    <div className="py-3 text-center text-xs opacity-60">
-                        {query
-                            ? t('servers.noSavedMatch', { query })
-                            : t('servers.noSavedYet')}
+                    <div className="px-4 py-10 text-center text-[13px] text-[var(--dnss-ink-3)]">
+                        {filterTab === 'custom'
+                            ? query
+                                ? t('servers.noSavedMatch', { query })
+                                : t('servers.noSavedYet')
+                            : t('servers.noPresetMatch', { query })}
                     </div>
                 )}
-            </Section>
+            </section>
 
-            <Section
-                title={t('servers.presets')}
-                count={num(visiblePresets.length)}
-                open={presetsOpen}
-                onToggle={togglePresets}
-                closedRotate={closedChevron}
-            >
-                {visiblePresets.length > 0 ? (
-                    visiblePresets.map(renderCard)
-                ) : (
-                    <div className="py-3 text-center text-xs opacity-60">
-                        {t('servers.noPresetMatch', { query })}
-                    </div>
-                )}
-            </Section>
+            {/* Add / Edit Modal */}
+            {form && (
+                <ServerModal
+                    i18n={i18n}
+                    mode={form.mode}
+                    initialName={
+                        form.mode === 'edit'
+                            ? (configs[form.index]?.name ?? '')
+                            : ''
+                    }
+                    name={name}
+                    primary={primary}
+                    alternative={alternative}
+                    saving={saving}
+                    onName={setName}
+                    onPrimary={setPrimary}
+                    onAlternative={setAlternative}
+                    onSubmit={submitForm}
+                    onCancel={closeForm}
+                />
+            )}
         </div>
     );
 }

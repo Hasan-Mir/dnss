@@ -15,7 +15,11 @@
     <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
         <security>
             <requestedPrivileges>
-                <requestedExecutionLevel level="requireAdministrator" uiAccess="false" />
+                <!-- The desktop UI runs unprivileged (asInvoker) with no UAC
+                     prompt on launch. Privileged DNS changes are delegated to
+                     the DnssService Windows background service installed once
+                     during setup. -->
+                <requestedExecutionLevel level="asInvoker" uiAccess="false" />
             </requestedPrivileges>
         </security>
     </trustInfo>

@@ -41,19 +41,15 @@ fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
-/// Run a command with elevation.
-/// Windows: the app itself runs elevated (requireAdministrator manifest),
-///         so commands run directly.
+/// Run a command with elevation (Linux/macOS only; Windows delegates privileged
+/// mutations to the `DnssService` background service).
 /// macOS:   `osascript` shows the native admin password dialog; the inner
 ///          shell string is built exclusively from shell-quoted tokens.
 /// Linux:   `pkexec` executes the binary directly with an argument vector
 ///          (no shell involved).
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 fn run_privileged(cmd: &str, args: &[&str]) -> Result<(), String> {
-    if cfg!(target_os = "windows") {
-        // The app is already elevated; run directly.
-        run(cmd, args).map(|_| ())
-    } else if cfg!(target_os = "macos") {
+    if cfg!(target_os = "macos") {
         // osascript ultimately runs a shell string, so every dynamic token
         // must be shell-quoted. The AppleScript string itself is built with
         // escaped double quotes and backslashes.
@@ -99,16 +95,10 @@ fn set_dns_outcome(adapter: &str, servers: &[String]) -> super::SetDnsOutcome {
 
 // ===== Windows =====
 
-/// Base64-encode UTF-16LE bytes, the format PowerShell's `-EncodedCommand`
-/// expects. Keeps scripts and non-ASCII adapter names free of quoting and
-/// OEM code-page pitfalls.
-#[cfg(target_os = "windows")]
-pub(crate) fn utf16le_base64(text: &str) -> String {
+/// Standard RFC 4648 Base64 encoder (no external dependency).
+#[cfg(any(target_os = "windows", test))]
+fn bytes_base64(bytes: &[u8]) -> String {
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let bytes: Vec<u8> = text
-        .encode_utf16()
-        .flat_map(|unit| unit.to_le_bytes())
-        .collect();
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
         let word = ((chunk[0] as u32) << 16)
@@ -130,9 +120,34 @@ pub(crate) fn utf16le_base64(text: &str) -> String {
     out
 }
 
-/// Run a PowerShell snippet and return its stdout. Callers embed dynamic
-/// tokens as single-quoted PowerShell strings only (`''` escapes a quote);
-/// user data never becomes PowerShell syntax.
+/// Base64-encode UTF-16LE bytes, the format PowerShell's `-EncodedCommand`
+/// expects. Keeps scripts and non-ASCII adapter names free of quoting and
+/// OEM code-page pitfalls.
+#[cfg(target_os = "windows")]
+fn utf16le_base64(text: &str) -> String {
+    let bytes: Vec<u8> = text
+        .encode_utf16()
+        .flat_map(|unit| unit.to_le_bytes())
+        .collect();
+    bytes_base64(&bytes)
+}
+
+/// Resolve an absolute executable path under `%SystemRoot%` so the `LocalSystem`
+/// service never resolves bare filenames (`powershell`, `ipconfig`, `fltmc`)
+/// through a potentially user-writable directory on `PATH` or `$INSTDIR`
+/// (CWE-426 / CWE-427).
+#[cfg(target_os = "windows")]
+fn system_exe(rel_path: &str) -> String {
+    let root = std::env::var("SystemRoot")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or_else(|| r"C:\Windows".to_string());
+    format!(r"{}\{}", root.trim_end_matches('\\'), rel_path)
+}
+
+/// Run a PowerShell snippet and return its stdout using the absolute Windows
+/// PowerShell path. Callers pass untrusted strings via Base64 JSON or
+/// `ps_quote` so user data never becomes PowerShell syntax.
 #[cfg(target_os = "windows")]
 fn run_ps(script: &str) -> Result<String, String> {
     let utf8_script = format!(
@@ -140,13 +155,28 @@ fn run_ps(script: &str) -> Result<String, String> {
         script
     );
     let encoded = utf16le_base64(&utf8_script);
-    run("powershell", &["-NoProfile", "-EncodedCommand", &encoded])
+    let ps = system_exe(r"System32\WindowsPowerShell\v1.0\powershell.exe");
+    run(&ps, &["-NoProfile", "-EncodedCommand", &encoded])
 }
 
 /// Quote a value for embedding inside a PowerShell single-quoted string.
-#[cfg(target_os = "windows")]
+/// PowerShell's lexer treats both ASCII `'` (U+0027) and Unicode smart single
+/// quotes (U+2018..U+201B) as single-quote string delimiters; every one of
+/// them must be doubled to prevent string breakout.
+#[cfg(any(target_os = "windows", test))]
 fn ps_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "''"))
+    let mut escaped = String::with_capacity(value.len() + 2);
+    escaped.push('\'');
+    for ch in value.chars() {
+        if matches!(ch, '\'' | '\u{2018}' | '\u{2019}' | '\u{201A}' | '\u{201B}') {
+            escaped.push(ch);
+            escaped.push(ch);
+        } else {
+            escaped.push(ch);
+        }
+    }
+    escaped.push('\'');
+    escaped
 }
 
 /// One PowerShell spawn that answers everything a status refresh needs: the
@@ -305,14 +335,37 @@ foreach ($n in __NAMES__) {
 ConvertTo-Json -Compress -InputObject @($results)";
 
 #[cfg(target_os = "windows")]
-pub fn set_dns_many(
+const SERVICE_UNAVAILABLE_ERROR: &str = "DNSS background service (DnssService) is not running and DNSS is not elevated. Reinstall DNSS using the installer, start DnssService in Services, or run `dnss.exe --install-service` once as administrator.";
+
+/// True when the current Windows process holds an elevated administrator token.
+/// Uses `fltmc` (spawned with CREATE_NO_WINDOW via `run`) instead of `net session`,
+/// which is unreliable when the LanmanServer service is stopped.
+#[cfg(target_os = "windows")]
+fn is_elevated() -> bool {
+    let fltmc = system_exe(r"System32\fltmc.exe");
+    run(&fltmc, &[]).is_ok()
+}
+
+/// Apply DNS settings directly in the current Windows process.
+/// Called by `DnssService` (running as LocalSystem) or directly when the app
+/// is launched from an already-elevated shell (e.g. dev/portable runs).
+#[cfg(target_os = "windows")]
+pub(crate) fn set_dns_many_direct(
     names: Option<&[String]>,
     servers: &[String],
 ) -> Result<Vec<super::SetDnsOutcome>, String> {
     let names_expr = match names {
         Some(names) => {
-            let quoted: Vec<String> = names.iter().map(|n| ps_quote(n)).collect();
-            format!("@({})", quoted.join(","))
+            // Pass adapter names as Base64-encoded UTF-8 JSON (strictly
+            // [A-Za-z0-9+/=]) so untrusted adapter strings never enter
+            // PowerShell's lexer as string literals.
+            let json = serde_json::to_string(names)
+                .map_err(|e| format!("JSON serialize error: {}", e))?;
+            let b64 = bytes_base64(json.as_bytes());
+            format!(
+                "@(ConvertFrom-Json ([System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{}'))))",
+                b64
+            )
         }
         // The adapter list comes from the OS itself; nothing to quote.
         None => "@(Get-NetAdapter | Select-Object -ExpandProperty Name)".to_string(),
@@ -367,13 +420,53 @@ pub fn set_dns_many(
 }
 
 #[cfg(target_os = "windows")]
+pub(crate) fn flush_dns_direct() -> Result<(), String> {
+    let ipconfig = system_exe(r"System32\ipconfig.exe");
+    run(&ipconfig, &["/flushdns"]).map(|_| ())
+}
+
+#[cfg(target_os = "windows")]
+pub fn set_dns_many(
+    names: Option<&[String]>,
+    servers: &[String],
+) -> Result<Vec<super::SetDnsOutcome>, String> {
+    match crate::service::client_set_dns_many(names, servers) {
+        Ok(outcomes) => Ok(outcomes),
+        Err(crate::service::ServiceClientError::Unavailable) => {
+            if is_elevated() {
+                set_dns_many_direct(names, servers)
+            } else {
+                Err(SERVICE_UNAVAILABLE_ERROR.to_string())
+            }
+        }
+        Err(crate::service::ServiceClientError::Failed(err)) => Err(err),
+    }
+}
+
+#[cfg(target_os = "windows")]
 pub fn reset_all_dns() -> Result<Vec<super::SetDnsOutcome>, String> {
-    set_dns_many(None, &[])
+    match crate::service::client_reset_all_dns() {
+        Ok(outcomes) => Ok(outcomes),
+        Err(crate::service::ServiceClientError::Unavailable) => {
+            if is_elevated() {
+                set_dns_many_direct(None, &[])
+            } else {
+                Err(SERVICE_UNAVAILABLE_ERROR.to_string())
+            }
+        }
+        Err(crate::service::ServiceClientError::Failed(err)) => Err(err),
+    }
 }
 
 #[cfg(target_os = "windows")]
 pub fn flush_dns() -> Result<(), String> {
-    run("ipconfig", &["/flushdns"]).map(|_| ())
+    match crate::service::client_flush_dns() {
+        Ok(()) => Ok(()),
+        // `ipconfig /flushdns` generally succeeds even for standard users,
+        // so fall back directly if the background service is not installed.
+        Err(crate::service::ServiceClientError::Unavailable) => flush_dns_direct(),
+        Err(crate::service::ServiceClientError::Failed(err)) => Err(err),
+    }
 }
 
 // ===== Linux =====
@@ -516,7 +609,7 @@ pub fn set_dns(adapter: &str, servers: &[String]) -> Result<(), String> {
     // auto-learned IPv6 resolvers (RA/RDNSS/DHCPv6): on dual-stack networks
     // they would otherwise keep serving AAAA queries and bypass the chosen
     // provider entirely.
-    let mut mod_args: Vec<String> = vec![
+    let mod_args: Vec<String> = vec![
         "con".to_string(),
         "mod".to_string(),
         connection.clone(),
@@ -913,5 +1006,34 @@ pub fn detect_default_adapter() -> Result<Option<String>, String> {
     })
 }
 
+#[cfg(test)]
+mod tests {
+    use super::{bytes_base64, ps_quote};
 
+    #[test]
+    fn ps_quote_escapes_ascii_and_unicode_smart_quotes() {
+        assert_eq!(ps_quote("Wi-Fi"), "'Wi-Fi'");
+        assert_eq!(ps_quote("User's NIC"), "'User''s NIC'");
+        assert_eq!(
+            ps_quote("Wi-Fi\u{2019}); whoami; #"),
+            "'Wi-Fi\u{2019}\u{2019}); whoami; #'"
+        );
+        for q in ['\u{2018}', '\u{2019}', '\u{201A}', '\u{201B}'] {
+            let input = format!("a{}b", q);
+            let expected = format!("'a{}{}b'", q, q);
+            assert_eq!(ps_quote(&input), expected);
+        }
+    }
 
+    #[test]
+    fn bytes_base64_produces_rfc4648_ascii() {
+        assert_eq!(bytes_base64(b""), "");
+        assert_eq!(bytes_base64(b"f"), "Zg==");
+        assert_eq!(bytes_base64(b"fo"), "Zm8=");
+        assert_eq!(bytes_base64(b"foo"), "Zm9v");
+        let encoded = bytes_base64("[\"Wi-Fi\u{2019}\"]".as_bytes());
+        assert!(encoded
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/' || b == b'='));
+    }
+}

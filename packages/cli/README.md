@@ -6,7 +6,7 @@
 
 - 🗂 Built-in DNS presets (Cloudflare, Google, Quad9, AdGuard, OpenDNS, Mullvad, Control D, Shecan, Electro, Radar Game, Begzar, …)
 - ⚙️ Custom saved DNS configurations
-- 🖧 Active-adapter auto-detection (default gateway)
+- 🖧 Per-adapter and all-adapter DNS switching
 - 🔄 Apply / reset (DHCP) per adapter or for all adapters
 - 📋 Show the currently used DNS per adapter
 - ⏱ DNS latency benchmark
@@ -41,7 +41,7 @@ Just run it — `dnss` (or `npx @seymi/dnss-cli`) opens an interactive menu:
   Exit
 ```
 
-The CLI relaunches itself with administrator privileges automatically (UAC on Windows, `sudo` on macOS/Linux), because changing adapter DNS is a system-level operation. On Windows the UAC prompt opens a **new administrator window** — the original terminal waits and tells you what is happening.
+On Windows, if the DNSS desktop app's `DnssService` background service is installed and running, the CLI delegates DNS changes to it over the local Named Pipe **without triggering UAC**. Otherwise (standalone `npx` usage, or macOS/Linux), the CLI relaunches itself with administrator privileges automatically (UAC on Windows, `sudo` on macOS/Linux).
 
 ## 🗄 Storage
 

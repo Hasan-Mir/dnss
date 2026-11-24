@@ -47,7 +47,7 @@ export interface NetworkStatus {
 export interface SetDnsOutcome {
     adapter: string;
     ok: boolean;
-    error: string;
+    error?: string;
 }
 
 /**
@@ -121,7 +121,18 @@ export const api = {
     saveConfigs: (configs: DnsConfig[]): Promise<DnsConfig[]> =>
         invokeCommand<DnsConfig[]>('save_configs', { configs }),
 
-    /** Benchmark one DNS server against a target URL (same as the CLI's benchmark). */
+    /** Benchmark one DNS server against a target URL (UDP resolve + TCP connect). */
     benchmarkDns: (server: string, target: string): Promise<BenchmarkSample> =>
         invokeCommand<BenchmarkSample>('benchmark_dns', { server, target }),
+
+    /** Show and focus the main desktop window, optionally opening a specific tab. */
+    showMainWindow: (tab?: 'home' | 'servers' | 'settings'): Promise<void> =>
+        invokeCommand<void>('show_main_window', { tab: tab ?? null }),
+
+    /** Hide the compact system tray popover window. */
+    hideTrayWindow: (): Promise<void> =>
+        invokeCommand<void>('hide_tray_window'),
+
+    /** Quit the entire DNSS desktop application. */
+    quitApp: (): Promise<void> => invokeCommand<void>('quit_app'),
 };

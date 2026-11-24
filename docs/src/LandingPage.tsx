@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import App from '@gui/App';
 
 // Asset Imports
@@ -126,12 +126,33 @@ export default function LandingPage() {
         document.documentElement.setAttribute('data-theme', landingTheme);
     }, [landingLang, landingTheme]);
 
-    const handleCopyCli = () => {
-        navigator.clipboard.writeText('npx @seymi/dnss-cli');
-        setCopied(true);
-        setTimeout(() => {
+    const copyTimerRef = useRef<number | null>(null);
+
+    useEffect(() => {
+        return () => {
+            if (copyTimerRef.current !== null) {
+                window.clearTimeout(copyTimerRef.current);
+            }
+        };
+    }, []);
+
+    const handleCopyCli = async () => {
+        try {
+            if (!navigator.clipboard?.writeText) {
+                return;
+            }
+            await navigator.clipboard.writeText('npx @seymi/dnss-cli');
+            setCopied(true);
+            if (copyTimerRef.current !== null) {
+                window.clearTimeout(copyTimerRef.current);
+            }
+            copyTimerRef.current = window.setTimeout(() => {
+                copyTimerRef.current = null;
+                setCopied(false);
+            }, 2000);
+        } catch {
             setCopied(false);
-        }, 2000);
+        }
     };
 
     const isFa = landingLang === 'fa';
@@ -515,8 +536,8 @@ export default function LandingPage() {
                                 dir={isFa ? 'rtl' : 'ltr'}
                             >
                                 {isFa
-                                    ? 'نصب‌کننده‌های EXE و MSI'
-                                    : 'EXE and MSI installers'}
+                                    ? 'نصب‌کننده EXE (یک بار UAC، بدون درخواست مجدد)'
+                                    : 'EXE installer (one-time UAC, background service)'}
                             </span>
                         </a>
 
@@ -879,7 +900,7 @@ export default function LandingPage() {
                             <p className="mt-3 text-sm leading-relaxed opacity-70">
                                 {isFa
                                     ? 'نسخه CLI از همان تنظیمات و سرورها استفاده می‌کند. با npx مستقیماً اجرا می‌شود.'
-                                    : 'The CLI shares the core with the app: same presets, same config file, same benchmark. Start it with npx, nothing to install. Requires Node 18+.'}
+                                    : 'The CLI shares the core with the app: same presets, same config file, and built-in benchmarking. Start it with npx, nothing to install. Requires Node 18+.'}
                             </p>
                             <div className="mt-6">
                                 <a

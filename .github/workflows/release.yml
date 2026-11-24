@@ -61,9 +61,20 @@ jobs:
                   tagName: ${{ github.ref_name }}
                   releaseName: 'DNSS ${{ github.ref_name }}'
                   releaseBody: >-
-                      Installers for Windows, macOS and Linux. Windows builds run
-                      elevated (the OS asks for admin once per launch); macOS and
+                      Installers for Windows, macOS and Linux. The Windows NSIS
+                      installer asks for UAC once during setup to install the
+                      DnssService background service — launching the app and
+                      switching DNS require no further UAC prompts. macOS and
                       Linux ask for credentials when a DNS change is applied.
-                  releaseDraft: false
+                  releaseDraft: true
                   prerelease: false
                   args: ${{ matrix.args }}
+
+    publish:
+        needs: build
+        runs-on: ubuntu-latest
+        steps:
+            - name: Publish GitHub Release
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: gh release edit "${{ github.ref_name }}" --draft=false --repo "${{ github.repository }}"

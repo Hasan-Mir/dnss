@@ -8,12 +8,15 @@
  *  - Apply / reset (DHCP) per adapter or for all adapters
  *  - Show current DNS settings
  *
- * Changing DNS is a system-level operation, so the tool automatically
- * relaunches itself with administrator/sudo privileges when needed.
+ * Changing DNS is a system-level operation. On Windows, if the DNSS
+ * background service (`DnssService`) is running, the CLI delegates DNS
+ * mutations over its local Named Pipe without requiring UAC elevation;
+ * otherwise it falls back to relaunching with administrator/sudo privileges.
  */
 
 import inquirer from 'inquirer';
 import chalk from 'chalk';
+import net from 'node:net';
 import path from 'node:path';
 import { execFileSync, execSync } from 'node:child_process';
 
@@ -32,6 +35,185 @@ import {
 
 function getOS(): OsType {
     return getOsType();
+}
+
+function windowsSystemExe(relPath: string): string {
+    const root = (process.env.SystemRoot || 'C:\\Windows').replace(/\\+$/, '');
+    return `${root}\\${relPath}`;
+}
+
+const WINDOWS_POWERSHELL_EXE = windowsSystemExe(
+    'System32\\WindowsPowerShell\\v1.0\\powershell.exe'
+);
+const WINDOWS_FLTMC_EXE = windowsSystemExe('System32\\fltmc.exe');
+const WINDOWS_SC_EXE = windowsSystemExe('System32\\sc.exe');
+const WINDOWS_SERVICE_PIPE = '\\\\.\\pipe\\dnss-service';
+const MAX_SERVICE_RESPONSE_BYTES = 64 * 1024;
+let useWindowsService = false;
+
+interface WindowsServiceOutcome {
+    adapter: string;
+    ok: boolean;
+    error?: string;
+}
+
+interface WindowsServiceResponse {
+    ok: boolean;
+    outcomes?: WindowsServiceOutcome[];
+    error?: string;
+    version?: string;
+}
+
+type WindowsServiceRequest =
+    | { op: 'ping' }
+    | { op: 'set_dns_many'; adapters: string[] | null; servers: string[] }
+    | { op: 'reset_all_dns' }
+    | { op: 'flush_dns' };
+
+/**
+ * Send one newline-delimited JSON request to the local `DnssService`
+ * Windows Named Pipe with strict size and timeout bounds.
+ */
+function sendWindowsServiceRequestOnce(
+    request: WindowsServiceRequest,
+    timeoutMs: number
+): Promise<WindowsServiceResponse> {
+    return new Promise((resolve, reject) => {
+        const socket = net.connect(WINDOWS_SERVICE_PIPE);
+        let settled = false;
+        let receivedBytes = 0;
+        const chunks: Buffer[] = [];
+
+        const finish = (err: Error | null, res?: WindowsServiceResponse) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            socket.destroy();
+            if (err) {
+                reject(err);
+            } else {
+                resolve(res!);
+            }
+        };
+
+        const timer = setTimeout(() => {
+            finish(new Error('Timed out waiting for DNSS Windows service.'));
+        }, timeoutMs);
+
+        socket.on('connect', () => {
+            socket.write(`${JSON.stringify(request)}\n`, 'utf8');
+        });
+
+        socket.on('data', (chunk: Buffer) => {
+            receivedBytes += chunk.length;
+            if (receivedBytes > MAX_SERVICE_RESPONSE_BYTES) {
+                finish(new Error('DNSS service response exceeded size limit.'));
+                return;
+            }
+            chunks.push(chunk);
+            if (chunk.includes(0x0a)) {
+                const raw = Buffer.concat(chunks).toString('utf8');
+                const line = raw.split('\n', 1)[0].trim();
+                try {
+                    finish(null, JSON.parse(line) as WindowsServiceResponse);
+                } catch (e) {
+                    finish(
+                        new Error(
+                            `Invalid JSON response from DNSS service: ${e instanceof Error ? e.message : String(e)}`
+                        )
+                    );
+                }
+            }
+        });
+
+        socket.on('end', () => {
+            if (settled) return;
+            const raw = Buffer.concat(chunks).toString('utf8').trim();
+            if (!raw) {
+                finish(new Error('Empty response from DNSS Windows service.'));
+                return;
+            }
+            try {
+                finish(null, JSON.parse(raw) as WindowsServiceResponse);
+            } catch (e) {
+                finish(
+                    new Error(
+                        `Invalid JSON response from DNSS service: ${e instanceof Error ? e.message : String(e)}`
+                    )
+                );
+            }
+        });
+
+        socket.on('error', (err) => {
+            finish(err);
+        });
+    });
+}
+
+async function sendWindowsServiceRequest(
+    request: WindowsServiceRequest,
+    timeoutMs = 15_000
+): Promise<WindowsServiceResponse> {
+    const maxAttempts = 4;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            return await sendWindowsServiceRequestOnce(request, timeoutMs);
+        } catch (err) {
+            const code = (err as NodeJS.ErrnoException | undefined)?.code;
+            if (code === 'EBUSY' && attempt < maxAttempts) {
+                await new Promise((r) => setTimeout(r, 200 * attempt));
+                continue;
+            }
+            throw err;
+        }
+    }
+    throw new Error('DNSS Windows service is busy; please retry.');
+}
+
+/**
+ * Verify via Windows SCM (`sc.exe query DnssService`) that `DnssService` is
+ * actually in STATE 4 (RUNNING) before trusting the Named Pipe, preventing
+ * local pipe squatting when the service is absent or stopped.
+ */
+function isWindowsServiceRunning(): boolean {
+    try {
+        const output = execFileSync(WINDOWS_SC_EXE, ['query', 'DnssService'], {
+            encoding: 'utf-8',
+            stdio: ['ignore', 'pipe', 'ignore'],
+        });
+        // Match the numeric state 4 and untranslated Win32 enum token RUNNING
+        // rather than the "STATE" label, which sc.exe localizes on non-English
+        // Windows installations (e.g. "ESTADO : 4  RUNNING").
+        return /^\s*[^:\r\n]+:\s*4\s+RUNNING\b/m.test(output);
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Probe whether `DnssService` is installed and accepting requests.
+ */
+async function pingWindowsService(): Promise<boolean> {
+    if (getOS() !== 'windows') return false;
+    if (!isWindowsServiceRunning()) return false;
+    try {
+        // When DnssService is absent, CreateFileW fails immediately with ENOENT.
+        // A 5 s budget only applies when the single-instance pipe is busy
+        // serving an in-flight PowerShell DNS change.
+        const res = await sendWindowsServiceRequest({ op: 'ping' }, 5_000);
+        return res.ok === true;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Escape single-quote delimiters for PowerShell single-quoted strings.
+ * PowerShell treats ASCII `'` and Unicode smart single quotes (U+2018..U+201B)
+ * as string delimiters; every one of them must be doubled.
+ */
+function psEscapeSingleQuote(value: string): string {
+    return value.replace(/['\u2018-\u201b]/g, (ch) => ch + ch);
 }
 
 /**
@@ -113,7 +295,7 @@ function getCurrentDNSWindowsAll(): {
     let output: string;
     try {
         output = execFileSync(
-            'powershell',
+            WINDOWS_POWERSHELL_EXE,
             ['-NoProfile', '-Command', script],
             {
                 encoding: 'utf-8',
@@ -181,7 +363,7 @@ function getNetworkAdapters(): string[] {
             // localized header). Get-NetAdapter gives stable JSON property
             // names instead.
             const output = execFileSync(
-                'powershell',
+                WINDOWS_POWERSHELL_EXE,
                 [
                     '-NoProfile',
                     '-Command',
@@ -239,17 +421,21 @@ function getCurrentDNS(adapter?: string): DnsConfig | null {
             // in-use servers via Get-DnsClientServerAddress (both families)
             // and statically configured ones via the Tcpip registry values.
             const alias = adapter ? adapter.trim() : '';
-            const escaped = alias.replace(/'/g, "''");
-            const aliasArg = alias ? ` -InterfaceAlias '${escaped}'` : '';
+            const escaped = psEscapeSingleQuote(alias);
+            const adapterExpr = alias
+                ? `Get-NetAdapter | Where-Object { $_.Name -eq '${escaped}' }`
+                : 'Get-NetAdapter';
             const script = [
                 '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8;',
-                `$guids = @((Get-NetAdapter${aliasArg}) | Select-Object -ExpandProperty InterfaceGuid);`,
-                `$dns = @(Get-DnsClientServerAddress${aliasArg} | Select-Object -ExpandProperty ServerAddresses);`,
+                `$adapters = @(${adapterExpr});`,
+                '$guids = @($adapters | Select-Object -ExpandProperty InterfaceGuid);',
+                '$indices = @($adapters | Select-Object -ExpandProperty ifIndex);',
+                '$dns = if ($indices.Count -gt 0) { @(Get-DnsClientServerAddress -InterfaceIndex $indices | Select-Object -ExpandProperty ServerAddresses) } else { @() };',
                 `$ns = $guids | ForEach-Object { $p = Get-ItemProperty -Path "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters\\Interfaces\\$_" -ErrorAction SilentlyContinue; @($p.NameServer, $p.ProfileNameServer) -join ',' } | ForEach-Object { $_ -split '[,\\s]+' };`,
                 '[PSCustomObject]@{ inUse = @($dns); static = @($ns) } | ConvertTo-Json -Compress',
             ].join(' ');
             const output = execFileSync(
-                'powershell',
+                WINDOWS_POWERSHELL_EXE,
                 ['-NoProfile', '-Command', script],
                 { encoding: 'utf-8' }
             );
@@ -385,11 +571,11 @@ function resolveLinuxConnection(device: string): string | null {
  * Apply the DNS settings to the given network adapter.
  * If config is undefined, set DNS to automatic (DHCP).
  */
-function setDNS(
+async function setDNS(
     adapter: string,
     config?: DnsConfig,
     options?: { skipDisconnectedLinux?: boolean }
-): { ok: true } | { ok: false; error: string } {
+): Promise<{ ok: true } | { ok: false; error: string }> {
     const osType = getOS();
     // Normalized values: the validators accept surrounding whitespace (they
     // trim before matching), so the command line must receive the trimmed
@@ -434,43 +620,78 @@ function setDNS(
 
     try {
         if (osType === 'windows') {
-            // Set-DnsClientServerAddress replaces the *entire* address list
-            // in one call: the previous netsh `set dns` + `add dns index=2`
-            // pattern left stale entries at index >= 3 active whenever the
-            // adapter already had more servers than the new list contains.
-            // It also covers both address families, so a stale IPv6 static
-            // resolver no longer survives a reset. The adapter name is
-            // embedded in a PowerShell single-quoted string ('' escapes).
-            const alias = adapterName.replace(/'/g, "''");
-            if (!config) {
-                logSettingDnsToAuto();
-                execFileSync(
-                    'powershell',
-                    [
-                        '-NoProfile',
-                        '-Command',
-                        `Set-DnsClientServerAddress -InterfaceAlias '${alias}' -ResetServerAddresses`,
-                    ],
-                    { stdio: 'inherit' }
-                );
+            if (useWindowsService) {
+                const servers = config
+                    ? [config.primary, config.alternative]
+                          .filter((s): s is string => Boolean(s))
+                          .map((s) => s.trim())
+                    : [];
+                if (!config) {
+                    logSettingDnsToAuto();
+                } else {
+                    logSettingDns(config);
+                }
+                const resp = await sendWindowsServiceRequest({
+                    op: 'set_dns_many',
+                    adapters: [adapterName],
+                    servers,
+                });
+                if (!resp.ok) {
+                    const message =
+                        resp.error || 'DNSS service failed to update DNS.';
+                    console.error(chalk.red(message));
+                    return { ok: false, error: message };
+                }
+                const failed = (resp.outcomes ?? []).find((o) => !o.ok);
+                if (failed) {
+                    const message =
+                        failed.error ||
+                        `Failed to update DNS on "${failed.adapter}".`;
+                    console.error(chalk.red(message));
+                    return { ok: false, error: message };
+                }
             } else {
-                logSettingDns(config);
+                // Set-DnsClientServerAddress replaces the *entire* address list
+                // in one call: the previous netsh `set dns` + `add dns index=2`
+                // pattern left stale entries at index >= 3 active whenever the
+                // adapter already had more servers than the new list contains.
+                // It also covers both address families, so a stale IPv6 static
+                // resolver no longer survives a reset. The adapter name is
+                // embedded in a PowerShell single-quoted string ('' escapes).
+                const alias = psEscapeSingleQuote(adapterName);
+                const resolveIdx =
+                    `$a = Get-NetAdapter | Where-Object { $_.Name -eq '${alias}' } | Select-Object -First 1; ` +
+                    `if (-not $a) { throw 'Unknown network adapter: ${alias}' }; `;
+                if (!config) {
+                    logSettingDnsToAuto();
+                    execFileSync(
+                        WINDOWS_POWERSHELL_EXE,
+                        [
+                            '-NoProfile',
+                            '-Command',
+                            `${resolveIdx}Set-DnsClientServerAddress -InterfaceIndex $a.ifIndex -ResetServerAddresses -ErrorAction Stop`,
+                        ],
+                        { stdio: 'inherit' }
+                    );
+                } else {
+                    logSettingDns(config);
 
-                const servers = [config.primary, config.alternative]
-                    .filter((s): s is string => Boolean(s))
-                    .map((s) => s.trim())
-                    .map((s) => `'${s.replace(/'/g, "''")}'`)
-                    .join(',');
+                    const servers = [config.primary, config.alternative]
+                        .filter((s): s is string => Boolean(s))
+                        .map((s) => s.trim())
+                        .map((s) => `'${psEscapeSingleQuote(s)}'`)
+                        .join(',');
 
-                execFileSync(
-                    'powershell',
-                    [
-                        '-NoProfile',
-                        '-Command',
-                        `Set-DnsClientServerAddress -InterfaceAlias '${alias}' -ServerAddresses @(${servers})`,
-                    ],
-                    { stdio: 'inherit' }
-                );
+                    execFileSync(
+                        WINDOWS_POWERSHELL_EXE,
+                        [
+                            '-NoProfile',
+                            '-Command',
+                            `${resolveIdx}Set-DnsClientServerAddress -InterfaceIndex $a.ifIndex -ServerAddresses @(${servers}) -ErrorAction Stop`,
+                        ],
+                        { stdio: 'inherit' }
+                    );
+                }
             }
         } else if (osType === 'linux') {
             // nmcli modifies connection profiles, not devices; resolve the
@@ -577,10 +798,13 @@ function setDNS(
         console.log(chalk.green('✔ DNS settings updated successfully.'));
         return { ok: true };
     } catch (error) {
-        console.error(
-            chalk.red('Failed to update DNS settings. Run as admin/sudo?'),
-            error
-        );
+        const code = (error as NodeJS.ErrnoException | undefined)?.code;
+        const hint = useWindowsService
+            ? code === 'ENOENT'
+                ? 'DNSS Windows service (DnssService) is no longer running. Restart DnssService or relaunch dnss.'
+                : 'Failed to update DNS settings via DNSS Windows service.'
+            : 'Failed to update DNS settings. Run as admin/sudo?';
+        console.error(chalk.red(hint), error);
         return {
             ok: false,
             error: error instanceof Error ? error.message : String(error),
@@ -596,7 +820,7 @@ function isAdmin(): boolean {
         // `fltmc` requires an elevated token, so its exit status reflects
         // elevation regardless of any optional service.
         try {
-            execFileSync('fltmc', { stdio: 'ignore' });
+            execFileSync(WINDOWS_FLTMC_EXE, { stdio: 'ignore' });
             return true;
         } catch {
             return false;
@@ -669,8 +893,8 @@ function elevatePrivileges() {
             //    the user actually ran.
             //
             // The PowerShell snippet is passed base64-encoded (-EncodedCommand,
-            // UTF-16LE) because nesting quoting through execSync -> cmd.exe ->
-            // powershell -> Start-Process is otherwise unmanageable. The
+            // UTF-16LE) via execFileSync on the pinned powershell.exe path so
+            // spaced or non-ASCII paths never break quoting. The
             // script path is double-quoted inside its PowerShell single-quote
             // token so spaced paths survive Start-Process' argument joining.
             // The script's own directory is used as working directory: the
@@ -686,16 +910,25 @@ function elevatePrivileges() {
                     'Administrator privileges are required. A UAC prompt will open; the CLI continues in the new administrator window...'
                 )
             );
+            console.log(
+                chalk.yellow(
+                    'Tip: Tired of UAC prompts on every run? Install the DNSS desktop app once (https://github.com/Hasan-Mir/dnss/releases) to enable DnssService — then both the GUI and CLI can switch DNS without UAC.'
+                )
+            );
             const psScript =
-                `Start-Process -FilePath '${nodeExe.replace(/'/g, "''")}' ` +
-                `-ArgumentList '"${scriptPath.replace(/'/g, "''")}"','${ELEVATED_FLAG}' ` +
-                `-WorkingDirectory '${workDir.replace(/'/g, "''")}' ` +
+                `Start-Process -FilePath '${psEscapeSingleQuote(nodeExe)}' ` +
+                `-ArgumentList '"${psEscapeSingleQuote(scriptPath)}"','${ELEVATED_FLAG}' ` +
+                `-WorkingDirectory '${psEscapeSingleQuote(workDir)}' ` +
                 `-Verb RunAs -Wait -PassThru | ` +
                 `ForEach-Object { exit $_.ExitCode }`;
             const encoded = Buffer.from(psScript, 'utf16le').toString('base64');
-            execSync(`powershell -NoProfile -EncodedCommand ${encoded}`, {
-                stdio: 'ignore',
-            });
+            execFileSync(
+                WINDOWS_POWERSHELL_EXE,
+                ['-NoProfile', '-EncodedCommand', encoded],
+                {
+                    stdio: 'ignore',
+                }
+            );
         } else {
             // macOS/Linux: sudo runs the app in this same terminal, so
             // interactive prompts must stay attached (stdio inherit). The
@@ -857,7 +1090,7 @@ async function changeDNSFlow(): Promise<boolean> {
     ]);
     if (confirm.proceed) {
         if (!applyToAll) {
-            setDNS(adapter, selectedConfig);
+            await setDNS(adapter, selectedConfig);
             return true;
         }
         // Bulk apply: mirror resetAllDNS semantics — collect failures so a
@@ -865,7 +1098,7 @@ async function changeDNSFlow(): Promise<boolean> {
         // not abort the remaining ones.
         const failures: string[] = [];
         for (const name of adapters) {
-            const result = setDNS(name, selectedConfig, {
+            const result = await setDNS(name, selectedConfig, {
                 skipDisconnectedLinux: true,
             });
             if (!result.ok) {
@@ -873,10 +1106,11 @@ async function changeDNSFlow(): Promise<boolean> {
             }
         }
         if (failures.length > 0) {
+            const suffix = useWindowsService
+                ? ' Check that DnssService is running.'
+                : ' Run as admin/sudo?';
             console.error(
-                chalk.red(
-                    `Failed on ${failures.length} adapter(s). Run as admin/sudo?`
-                )
+                chalk.red(`Failed on ${failures.length} adapter(s).${suffix}`)
             );
             for (const failure of failures) {
                 console.error(chalk.red(`  - ${failure}`));
@@ -1109,8 +1343,62 @@ async function editDNSConfigFlow(): Promise<boolean> {
     return true;
 }
 
-function resetAllDNS() {
+async function resetAllDNS() {
     const osType = getOS();
+
+    if (osType === 'windows' && useWindowsService) {
+        console.log(
+            chalk.yellow('Resetting DNS to automatic (DHCP) on all adapters...')
+        );
+        try {
+            const resp = await sendWindowsServiceRequest({
+                op: 'reset_all_dns',
+            });
+            if (!resp.ok) {
+                console.error(
+                    chalk.red(
+                        resp.error || 'DNSS service failed to reset adapters.'
+                    )
+                );
+                process.exitCode = 1;
+                return;
+            }
+            const outcomes = resp.outcomes ?? [];
+            if (outcomes.length === 0) {
+                console.error(chalk.red('No network adapters found.'));
+                process.exitCode = 1;
+                return;
+            }
+            const failures = outcomes
+                .filter((o) => !o.ok)
+                .map((o) => `${o.adapter}: ${o.error || 'unknown error'}`);
+            if (failures.length > 0) {
+                console.error(
+                    chalk.red(
+                        `Failed to reset DNS on ${failures.length} adapter(s):`
+                    )
+                );
+                for (const failure of failures) {
+                    console.error(chalk.red(`  - ${failure}`));
+                }
+                process.exitCode = 1;
+            } else {
+                console.log(
+                    chalk.green(
+                        '✔ All adapters have been reset to automatic (DHCP) DNS.'
+                    )
+                );
+            }
+        } catch (error) {
+            console.error(
+                chalk.red('Failed to reset DNS via DNSS service.'),
+                error
+            );
+            process.exitCode = 1;
+        }
+        return;
+    }
+
     const adapters = getNetworkAdapters();
 
     if (adapters.length === 0) {
@@ -1139,15 +1427,15 @@ function resetAllDNS() {
             if (osType === 'windows') {
                 // Set-DnsClientServerAddress -ResetServerAddresses clears
                 // static servers for both address families (netsh
-                // `interface ip` reset only IPv4).
+                // `interface ip` reset only IPv4). Address by ifIndex to avoid
+                // PowerShell wildcard expansion on `-InterfaceAlias`.
+                const alias = psEscapeSingleQuote(adapter.trim());
                 execFileSync(
-                    'powershell',
+                    WINDOWS_POWERSHELL_EXE,
                     [
                         '-NoProfile',
                         '-Command',
-                        `Set-DnsClientServerAddress -InterfaceAlias '${adapter
-                            .trim()
-                            .replace(/'/g, "''")}' -ResetServerAddresses`,
+                        `$a = Get-NetAdapter | Where-Object { $_.Name -eq '${alias}' } | Select-Object -First 1; if (-not $a) { throw 'Unknown network adapter: ${alias}' }; Set-DnsClientServerAddress -InterfaceIndex $a.ifIndex -ResetServerAddresses -ErrorAction Stop`,
                     ],
                     { stdio: 'inherit' }
                 );
@@ -1353,10 +1641,8 @@ function printBanner() {
  */
 async function mainMenu() {
     console.clear();
-    // Printed once per session: the loop must not re-print it on every
-    // iteration, otherwise terminals where ANSI clear-screen is unavailable
-    // (e.g. classic conhost with VT processing off) stack one banner per
-    // menu round-trip.
+    // Print the initial banner; subsequent menu returns clear the screen and
+    // re-print it so the menu stays anchored under the header.
     printBanner();
 
     let exit = false;
@@ -1405,7 +1691,7 @@ async function mainMenu() {
                 shouldPause = await editDNSConfigFlow();
                 break;
             case 'resetAll':
-                resetAllDNS();
+                await resetAllDNS();
                 shouldPause = true;
                 break;
             case 'showDNS':
@@ -1447,20 +1733,28 @@ async function mainMenu() {
 // Start the CLI tool.
 (async () => {
     if (!isAdmin()) {
-        if (process.argv.includes(ELEVATED_FLAG)) {
-            // The elevated child still fails the elevation check (broken
-            // detection, blocked fltmc, ...): abort instead of spawning
-            // another elevated copy forever.
-            console.error(
-                chalk.red(
-                    'The elevated process is still not recognized as admin; aborting to avoid an elevation loop.'
-                )
+        if (getOS() === 'windows' && (await pingWindowsService())) {
+            // DnssService is installed and running: stay unprivileged in the
+            // current terminal and delegate DNS writes over the local pipe.
+            useWindowsService = true;
+        } else {
+            if (process.argv.includes(ELEVATED_FLAG)) {
+                // The elevated child still fails the elevation check (broken
+                // detection, blocked fltmc, ...): abort instead of spawning
+                // another elevated copy forever.
+                console.error(
+                    chalk.red(
+                        'The elevated process is still not recognized as admin; aborting to avoid an elevation loop.'
+                    )
+                );
+                process.exit(1);
+            }
+            console.log(
+                chalk.yellow('Starting with administrator privileges...')
             );
+            elevatePrivileges();
             process.exit(1);
         }
-        console.log(chalk.yellow('Starting with administrator privileges...'));
-        elevatePrivileges();
-        process.exit(1);
     }
     await mainMenu();
 })();

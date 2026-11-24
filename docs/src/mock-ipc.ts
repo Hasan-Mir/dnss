@@ -163,15 +163,44 @@ export function installMockTauriIpc(): void {
                 return null;
             }
 
+            case 'plugin:event|listen': {
+                return ++nextListenerId;
+            }
+
+            case 'plugin:event|unlisten': {
+                return null;
+            }
+
             default: {
                 throw new Error(`Unknown command: ${cmd}`);
             }
         }
     };
 
+    let nextListenerId = 0;
+    const callbacks = new Map<number, (payload: unknown) => void>();
+    let nextCallbackId = 1;
+
     (
-        window as unknown as { __TAURI_INTERNALS__: { invoke: typeof invoke } }
+        window as unknown as {
+            __TAURI_INTERNALS__: {
+                invoke: typeof invoke;
+                transformCallback: (
+                    cb?: (payload: unknown) => void,
+                    once?: boolean
+                ) => number;
+                unregisterCallback: (id: number) => void;
+            };
+        }
     ).__TAURI_INTERNALS__ = {
         invoke,
+        transformCallback: (cb) => {
+            const id = nextCallbackId++;
+            if (cb) callbacks.set(id, cb);
+            return id;
+        },
+        unregisterCallback: (id) => {
+            callbacks.delete(id);
+        },
     };
 }

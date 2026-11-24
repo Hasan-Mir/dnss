@@ -19,7 +19,7 @@
 | ------------------------------------------------------------------------------------------------------------------------------ | ----------- | --- |
 | Built-in DNS presets (Cloudflare, Google, Quad9, AdGuard, OpenDNS, Mullvad, Control D, Shecan, Electro, Radar Game, Begzar, …) | ✅          | ✅  |
 | Custom DNS configurations                                                                                                      | ✅          | ✅  |
-| Active-adapter auto-detection (default gateway)                                                                                | ✅          | ✅  |
+| Active-adapter auto-detection (default gateway)                                                                                | ✅          | ❌  |
 | Reset adapter(s) to DHCP                                                                                                       | ✅          | ✅  |
 | Show current DNS per adapter                                                                                                   | ✅          | ✅  |
 | Flush the OS DNS cache                                                                                                         | ✅          | ❌  |
@@ -40,7 +40,7 @@ npm install -g @seymi/dnss-cli
 dnss
 ```
 
-The CLI relaunches itself with administrator privileges automatically (UAC on Windows, `sudo` on macOS/Linux), because changing adapter DNS is a system-level operation. On Windows the UAC prompt opens a **new administrator window** — the original terminal waits and tells you what is happening.
+On Windows, if the DNSS desktop app (and its `DnssService` background service) is installed, the CLI applies DNS changes through the local service **without any UAC prompt**. Otherwise (standalone npm/npx usage, or macOS/Linux), it relaunches itself with administrator privileges automatically (UAC on Windows, `sudo` on macOS/Linux).
 
 Saved configurations live in `~/.dnss/configs.json` (configs from the old `~/.dnschanger.json` are imported automatically). The file is written atomically with a 0600 temp file and never through planted symlinks; recovery copies are kept next to it when something goes wrong: `.bak` (previous good state), `.corrupt` (unparseable file) and `.invalid` (entries dropped by validation). Both the CLI and the desktop app share this file.
 
@@ -51,14 +51,14 @@ Requirements: [Node.js 18+](https://nodejs.org), the [Rust toolchain](https://ww
 ```bash
 npm install
 
-# development (hot reload) — `npm run dev` is a shortcut for `npm run tauri dev`
+# development (hot reload) — runs `tauri:dev` in the GUI workspace
 npm run dev
 
-# production build (installer + portable bundles per platform)
-npm run tauri build
+# production build (builds @seymi/dnss-core and platform installers: NSIS on Windows, DMG on macOS, DEB/RPM/AppImage on Linux)
+npm run build:desktop
 ```
 
-On Windows, the app is built with a `requireAdministrator` manifest: the UAC dialog appears **once at launch**, then every action inside the app runs elevated — no repeated prompts. During development the debug build starts unelevated and relaunches itself through one UAC prompt (a `requireAdministrator` executable cannot be spawned by `cargo run` from a normal shell).
+On Windows, the per-machine NSIS installer asks for UAC **once during installation** to register and start the `DnssService` background service (`SERVICE_AUTO_START`). After installation, the desktop app runs unprivileged (`asInvoker`) — launching DNSS, rebooting Windows, and switching DNS require **no UAC prompts**, even for standard (non-admin) corporate accounts. During development without the service installed, you can either run `dnss.exe --install-service` once from an elevated shell or start `npm run dev` from an administrator terminal.
 
 ## 🗂 Project structure
 
@@ -85,7 +85,7 @@ The desktop backend also serializes mutating operations (apply / reset / flush) 
 
 ## 🔐 Why admin rights?
 
-Changing the DNS servers of a network adapter is a **machine-wide** setting: on Windows it is written under `HKLM\SYSTEM\...\Tcpip\Parameters\Interfaces` (admin-only), on macOS it uses `networksetup`, on Linux `nmcli`. There is no per-user equivalent on Windows — every DNS changer that touches the system adapter settings needs elevation. DNSS asks once, up front, and tells you when it does.
+Changing the DNS servers of a network adapter is a **machine-wide** setting: on Windows it is written under `HKLM\SYSTEM\...\Tcpip\Parameters\Interfaces` (admin-only), on macOS it uses `networksetup`, on Linux `nmcli`. On Windows, DNSS follows the standard service-broker model (similar to WireGuard and Cloudflare WARP): the installer requests UAC once to install `DnssService` (`LocalSystem`), while the UI runs unprivileged (`asInvoker`) and sends strictly validated requests over a local Named Pipe (`\\.\pipe\dnss-service`) restricted to locally logged-in interactive users.
 
 ## 🙏 Credits & inspiration
 

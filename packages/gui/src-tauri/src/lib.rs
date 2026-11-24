@@ -1,10 +1,13 @@
 mod configs;
 mod net;
 mod platform;
+mod service;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::sync::{Mutex, MutexGuard};
-use tauri::Manager;
+use std::time::{Duration, Instant};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri::{Emitter, Manager, PhysicalPosition, PhysicalSize, WindowEvent};
 
 /// Serializes mutating network operations (`set_dns`, `reset_all_dns`,
 /// `flush_dns`). The frontend disables its buttons while busy, but the IPC
@@ -13,6 +16,14 @@ use tauri::Manager;
 /// and leave an adapter half-configured.
 #[derive(Default)]
 pub struct NetworkLock(Mutex<()>);
+
+/// Tracks the last time `"tray"` auto-hid on focus loss so a click on the
+/// taskbar tray icon that stole focus on mouse-down does not immediately
+/// re-open the popover on mouse-up.
+#[derive(Default)]
+struct TrayState(Mutex<Option<Instant>>);
+
+const TRAY_BLUR_SUPPRESS: Duration = Duration::from_millis(250);
 
 /// Commands run on the blocking pool, so a blocking guard is fine here.
 fn acquire_network_lock(lock: &NetworkLock) -> Result<MutexGuard<'_, ()>, String> {
@@ -59,12 +70,113 @@ pub struct NetworkStatus {
 
 /// Per-adapter result of a bulk DNS change: one dead adapter must not hide
 /// the success of the others.
-#[derive(Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SetDnsOutcome {
     pub adapter: String,
     pub ok: bool,
-    #[serde(skip_serializing_if = "String::is_empty")]
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub error: String,
+}
+
+/// Event emitted to all windows whenever DNS state or saved configs change
+/// so `"main"` and `"tray"` stay synchronized.
+const STATE_CHANGED_EVENT: &str = "dnss:state-changed";
+const NAVIGATE_EVENT: &str = "dnss:navigate";
+
+/// Pure helper computing a clamped physical position for the `"tray"` popover
+/// inside a monitor's work area (`wa_x`, `wa_y`, `wa_w`, `wa_h`).
+fn compute_tray_position(
+    click_pos: PhysicalPosition<f64>,
+    win_size: PhysicalSize<u32>,
+    wa_x: i32,
+    wa_y: i32,
+    wa_w: i32,
+    wa_h: i32,
+    margin: i32,
+) -> PhysicalPosition<i32> {
+    let w = win_size.width as i32;
+    let h = win_size.height as i32;
+    let cx = click_pos.x.round() as i32;
+    let cy = click_pos.y.round() as i32;
+
+    // Place above the click on bottom taskbars (Windows default), or
+    // below when the tray sits in the upper half of the screen.
+    let desired_y = if cy >= wa_y + wa_h / 2 {
+        cy - h - margin
+    } else {
+        cy + margin
+    };
+    let desired_x = cx - w / 2;
+
+    let min_x = wa_x + margin;
+    let max_x = (wa_x + wa_w - w - margin).max(min_x);
+    let min_y = wa_y + margin;
+    let max_y = (wa_y + wa_h - h - margin).max(min_y);
+
+    PhysicalPosition::new(desired_x.clamp(min_x, max_x), desired_y.clamp(min_y, max_y))
+}
+
+/// Position and toggle the `"tray"` popover window near the tray icon click
+/// point, clamped inside the clicked monitor's work area.
+fn toggle_tray_window(app: &tauri::AppHandle, click_pos: PhysicalPosition<f64>) {
+    let Some(window) = app.get_webview_window("tray") else {
+        return;
+    };
+
+    if window.is_visible().unwrap_or(false) {
+        let _ = window.hide();
+        return;
+    }
+
+    // Suppress the classic taskbar click race where mouse-down steals focus
+    // (hiding `"tray"` via Focused(false)) right before mouse-up fires Click.
+    if let Ok(mut last_blur) = app.state::<TrayState>().0.lock() {
+        if let Some(t) = last_blur.take() {
+            if t.elapsed() < TRAY_BLUR_SUPPRESS {
+                return;
+            }
+        }
+    }
+
+    let monitor = app
+        .monitor_from_point(click_pos.x, click_pos.y)
+        .ok()
+        .flatten()
+        .or_else(|| window.current_monitor().ok().flatten())
+        .or_else(|| window.primary_monitor().ok().flatten());
+
+    let scale = monitor.as_ref().map(|m| m.scale_factor()).unwrap_or(1.0);
+    let win_size = window.outer_size().unwrap_or_else(|_| {
+        PhysicalSize::new(
+            (360.0 * scale).round() as u32,
+            (520.0 * scale).round() as u32,
+        )
+    });
+    let margin = (8.0 * scale).round() as i32;
+
+    let pos = if let Some(mon) = monitor {
+        let wa = mon.work_area();
+        compute_tray_position(
+            click_pos,
+            win_size,
+            wa.position.x,
+            wa.position.y,
+            wa.size.width as i32,
+            wa.size.height as i32,
+            margin,
+        )
+    } else {
+        let cx = click_pos.x.round() as i32;
+        let cy = click_pos.y.round() as i32;
+        PhysicalPosition::new(
+            (cx - (win_size.width as i32) / 2).max(0),
+            (cy - (win_size.height as i32) - margin).max(0),
+        )
+    };
+
+    let _ = window.set_position(pos);
+    let _ = window.show();
+    let _ = window.set_focus();
 }
 
 /// Adapters + default-route adapter + its DNS status, in one backend call.
@@ -107,36 +219,48 @@ async fn set_dns_many(
             return Err(format!("Invalid IPv4 address: {}", server));
         }
     }
-    tauri::async_runtime::spawn_blocking(move || {
-        let lock = app.state::<NetworkLock>();
+    let app_for_task = app.clone();
+    let outcomes = tauri::async_runtime::spawn_blocking(move || {
+        let lock = app_for_task.state::<NetworkLock>();
         let _guard = acquire_network_lock(&lock)?;
         platform::set_dns_many(adapters.as_deref(), &servers)
     })
     .await
-    .map_err(|e| format!("Background task failed: {}", e))?
+    .map_err(|e| format!("Background task failed: {}", e))??;
+
+    let _ = app.emit(STATE_CHANGED_EVENT, ());
+    Ok(outcomes)
 }
 
 /// Reset every adapter to DHCP (per-adapter outcomes, same as set_dns_many).
 #[tauri::command]
 async fn reset_all_dns(app: tauri::AppHandle) -> Result<Vec<SetDnsOutcome>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let lock = app.state::<NetworkLock>();
+    let app_for_task = app.clone();
+    let outcomes = tauri::async_runtime::spawn_blocking(move || {
+        let lock = app_for_task.state::<NetworkLock>();
         let _guard = acquire_network_lock(&lock)?;
         platform::reset_all_dns()
     })
     .await
-    .map_err(|e| format!("Background task failed: {}", e))?
+    .map_err(|e| format!("Background task failed: {}", e))??;
+
+    let _ = app.emit(STATE_CHANGED_EVENT, ());
+    Ok(outcomes)
 }
 
 #[tauri::command]
 async fn flush_dns(app: tauri::AppHandle) -> Result<(), String> {
+    let app_for_task = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let lock = app.state::<NetworkLock>();
+        let lock = app_for_task.state::<NetworkLock>();
         let _guard = acquire_network_lock(&lock)?;
         platform::flush_dns()
     })
     .await
-    .map_err(|e| format!("Background task failed: {}", e))?
+    .map_err(|e| format!("Background task failed: {}", e))??;
+
+    let _ = app.emit(STATE_CHANGED_EVENT, ());
+    Ok(())
 }
 
 /// Saved custom DNS configurations, shared with the CLI via
@@ -147,8 +271,46 @@ fn get_configs() -> Vec<configs::DnsConfig> {
 }
 
 #[tauri::command]
-fn save_configs(configs: Vec<configs::DnsConfig>) -> Result<Vec<configs::DnsConfig>, String> {
-    configs::save_configs(configs)
+fn save_configs(
+    app: tauri::AppHandle,
+    configs: Vec<configs::DnsConfig>,
+) -> Result<Vec<configs::DnsConfig>, String> {
+    let saved = configs::save_configs(configs)?;
+    let _ = app.emit(STATE_CHANGED_EVENT, ());
+    Ok(saved)
+}
+
+/// Show and focus the main window, optionally navigating it to a specific tab
+/// (`"home"`, `"servers"`, or `"settings"`), and hide the tray popover.
+#[tauri::command]
+fn show_main_window(app: tauri::AppHandle, tab: Option<String>) {
+    if let Some(tray) = app.get_webview_window("tray") {
+        let _ = tray.hide();
+    }
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.unminimize();
+        let _ = main.show();
+        let _ = main.set_focus();
+    }
+    if let Some(target_tab) = tab {
+        if matches!(target_tab.as_str(), "home" | "servers" | "settings") {
+            let _ = app.emit(NAVIGATE_EVENT, target_tab);
+        }
+    }
+}
+
+/// Explicitly hide the compact tray popover window.
+#[tauri::command]
+fn hide_tray_window(app: tauri::AppHandle) {
+    if let Some(tray) = app.get_webview_window("tray") {
+        let _ = tray.hide();
+    }
+}
+
+/// Exit the entire DNSS application (used by the Quit button in the tray).
+#[tauri::command]
+fn quit_app(app: tauri::AppHandle) {
+    app.exit(0);
 }
 
 /// Parse a benchmark target URL the same way the CLI does: an optional
@@ -233,74 +395,25 @@ async fn benchmark_dns(
     .map_err(|e| format!("Benchmark task failed: {}", e))?
 }
 
-/// Dev-only Windows bootstrap: make sure the app actually runs elevated.
-///
-/// Debug builds carry an `asInvoker` manifest (a requireAdministrator
-/// manifest makes `cargo run` fail with error 740 from a normal shell), so
-/// the process may start unelevated. Changing DNS needs admin, so this
-/// relaunches itself through UAC and blocks until the elevated instance
-/// exits — the parked parent is what keeps `tauri dev` (and the vite dev
-/// server the elevated window loads its UI from) alive.
-///
-/// Release builds keep `requireAdministrator` in the manifest, so Windows
-/// elevates on launch and this whole path never compiles in.
-#[cfg(all(target_os = "windows", debug_assertions))]
-fn ensure_elevation_for_dev() {
-    use std::process::Command;
+/// Windows SCM entry point invoked via `dnss.exe --service`.
+#[cfg(target_os = "windows")]
+pub fn run_windows_service() -> Result<(), String> {
+    service::run_service()
+}
 
-    // `fltmc` only succeeds from an elevated token — the same probe the CLI
-    // uses (`net session` is unreliable when the Server service is stopped).
-    let elevated = Command::new("fltmc")
-        .output()
-        .map(|output| output.status.success())
-        .unwrap_or(false);
-    if elevated {
-        return;
-    }
+/// Install (or update) and start `DnssService` (elevated, run once by installer).
+#[cfg(target_os = "windows")]
+pub fn install_windows_service() -> Result<(), String> {
+    service::install_service()
+}
 
-    eprintln!(
-        "DNSS needs administrator privileges to change DNS settings; accept the UAC prompt..."
-    );
-
-    let exe = match std::env::current_exe() {
-        Ok(exe) => exe,
-        Err(_) => {
-            eprintln!(
-                "Cannot locate the DNSS executable. Restart the terminal as administrator and run `npm run tauri dev` again."
-            );
-            std::process::exit(1);
-        }
-    };
-
-    // `-Verb RunAs -Wait` shows the UAC dialog, starts the elevated instance
-    // and blocks until it exits; the exit code is propagated so `tauri dev`
-    // reports failures honestly. A declined UAC prompt throws -> exit 1, with
-    // the reason written to stderr for the dev console.
-    let script = format!(
-        "$ProgressPreference='SilentlyContinue'; try {{ Start-Process -FilePath '{}' -Verb RunAs -Wait -PassThru -ErrorAction Stop | ForEach-Object {{ exit $_.ExitCode }} }} catch {{ [Console]::Error.WriteLine($_.Exception.Message); exit 1 }}",
-        exe.display().to_string().replace('\'', "''")
-    );
-    let status = Command::new("powershell")
-        .args(["-NoProfile", "-EncodedCommand", &platform::utf16le_base64(&script)])
-        .status();
-
-    match status {
-        Ok(status) if status.success() => std::process::exit(0),
-        _ => {
-            eprintln!(
-                "Elevation was declined or failed. Restart the terminal as administrator and run `npm run tauri dev` again."
-            );
-            std::process::exit(1);
-        }
-    }
+/// Stop and remove `DnssService` (elevated, run by uninstaller).
+#[cfg(target_os = "windows")]
+pub fn uninstall_windows_service() -> Result<(), String> {
+    service::uninstall_service()
 }
 
 pub fn run() {
-    // Dev builds may start unelevated (asInvoker manifest); elevate before
-    // any UI or state is initialized.
-    #[cfg(all(target_os = "windows", debug_assertions))]
-    ensure_elevation_for_dev();
-
     tauri::Builder::default()
         // Opens external links (the About credit) in the user's real browser;
         // the webview itself must never navigate away from the app UI.
@@ -308,11 +421,68 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             // Focus the existing window when a second instance is launched.
             if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
                 let _ = window.show();
                 let _ = window.set_focus();
             }
         }))
+        .setup(|app| {
+            let mut tray_builder = TrayIconBuilder::with_id("dnss-tray")
+                .tooltip("DNSS — DNS Switcher")
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left | MouseButton::Right,
+                        button_state: MouseButtonState::Up,
+                        position,
+                        ..
+                    } = event
+                    {
+                        toggle_tray_window(tray.app_handle(), position);
+                    }
+                });
+
+            // Linux AppIndicator does not emit TrayIconEvent::Click; attach a
+            // native fallback menu so users can always reopen or quit DNSS.
+            #[cfg(target_os = "linux")]
+            {
+                use tauri::menu::{Menu, MenuItem};
+                let open_item = MenuItem::with_id(app, "open", "Open DNSS", true, None::<&str>)?;
+                let quit_item = MenuItem::with_id(app, "quit", "Quit DNSS", true, None::<&str>)?;
+                let menu = Menu::with_items(app, &[&open_item, &quit_item])?;
+                tray_builder = tray_builder
+                    .menu(&menu)
+                    .on_menu_event(|app, event| match event.id.as_ref() {
+                        "open" => show_main_window(app.clone(), None),
+                        "quit" => app.exit(0),
+                        _ => {}
+                    });
+            }
+
+            if let Some(icon) = app.default_window_icon().cloned() {
+                tray_builder = tray_builder.icon(icon);
+            }
+
+            let _tray = tray_builder.build(app)?;
+            Ok(())
+        })
+        .on_window_event(|window, event| match event {
+            WindowEvent::Focused(false) if window.label() == "tray" => {
+                if window.is_visible().unwrap_or(false) {
+                    if let Ok(mut last_blur) = window.app_handle().state::<TrayState>().0.lock() {
+                        *last_blur = Some(Instant::now());
+                    }
+                    let _ = window.hide();
+                }
+            }
+            WindowEvent::CloseRequested { api, .. } if window.label() == "main" => {
+                // Keep DNSS running in the System Tray instead of exiting.
+                api.prevent_close();
+                let _ = window.hide();
+            }
+            _ => {}
+        })
         .manage(NetworkLock::default())
+        .manage(TrayState::default())
         .invoke_handler(tauri::generate_handler![
             get_network_status,
             set_dns_many,
@@ -320,7 +490,10 @@ pub fn run() {
             flush_dns,
             get_configs,
             save_configs,
-            benchmark_dns
+            benchmark_dns,
+            show_main_window,
+            hide_tray_window,
+            quit_app
         ])
         .run(tauri::generate_context!())
         .expect("error while running dnss");
@@ -379,5 +552,26 @@ mod tests {
         assert!(parse_benchmark_target(&max_label).is_ok());
         let too_long_label = format!("{}.com", "a".repeat(64));
         assert!(parse_benchmark_target(&too_long_label).is_err());
+    }
+
+    #[test]
+    fn clamps_tray_position_across_taskbars_and_monitors() {
+        use super::{compute_tray_position, PhysicalPosition, PhysicalSize};
+
+        let size = PhysicalSize::new(360, 520);
+        // Bottom taskbar on 1920x1040 work area -> sits above click and clamped inside right edge.
+        let bottom = compute_tray_position(PhysicalPosition::new(1860.0, 1060.0), size, 0, 0, 1920, 1040, 8);
+        assert_eq!(bottom.x, 1920 - 360 - 8);
+        assert_eq!(bottom.y, 1040 - 520 - 8);
+
+        // Top menu bar / taskbar -> sits below click.
+        let top = compute_tray_position(PhysicalPosition::new(1700.0, 20.0), size, 0, 40, 1920, 1040, 8);
+        assert_eq!(top.x, 1520);
+        assert_eq!(top.y, 48);
+
+        // Secondary monitor left of primary (negative X).
+        let left_mon = compute_tray_position(PhysicalPosition::new(-80.0, 1050.0), size, -1920, 0, 1920, 1040, 8);
+        assert_eq!(left_mon.x, -360 - 8);
+        assert_eq!(left_mon.y, 1040 - 520 - 8);
     }
 }

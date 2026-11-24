@@ -108,90 +108,81 @@ export function loadConfigs(): DnsConfig[] {
 }
 
 /**
- * When elevated via sudo, hand `targetPath` back to the invoking user so
- * later non-elevated runs and the GUI can still write it. Best effort only.
+ * When elevated via sudo, resolve the invoking user's numeric UID/GID so
+ * newly created config files and directories can be handed back to them.
  */
-function chownToInvokingUser(targetPath: string): void {
+function getInvokingUserIds(): { uid: number; gid: number } | null {
     const sudoUid = process.env.SUDO_UID;
     const sudoGid = process.env.SUDO_GID;
     const isRoot =
         typeof process.getuid === 'function' && process.getuid() === 0;
     if (!isRoot || !sudoUid || !sudoGid) {
-        return;
+        return null;
     }
     const uid = Number(sudoUid);
     const gid = Number(sudoGid);
     if (!Number.isInteger(uid) || !Number.isInteger(gid)) {
-        return;
+        return null;
     }
+    return { uid, gid };
+}
+
+function fchownToInvokingUser(fd: number): void {
+    const ids = getInvokingUserIds();
+    if (!ids) return;
     try {
-        if (fs.existsSync(targetPath)) {
-            fs.chownSync(targetPath, uid, gid);
-        }
+        fs.fchownSync(fd, ids.uid, ids.gid);
     } catch {
         // Best effort only.
     }
 }
 
-/**
- * Defense-in-depth against symlink planting in `~/.dnss` (a badly
- * configured multi-user home can leave the directory writable by others):
- * auxiliary files must never be written *through* a symlink — that would
- * clobber an arbitrary attacker-chosen target. If the destination is a
- * symlink it is removed so the following write recreates a real file.
- */
-function removeSymlink(targetPath: string): void {
+function ensureSafeConfigDir(): void {
     try {
-        if (fs.lstatSync(targetPath).isSymbolicLink()) {
-            fs.unlinkSync(targetPath);
+        if (fs.lstatSync(CONFIG_DIR).isSymbolicLink()) {
+            throw new Error(
+                `Refusing to use symlinked config directory: ${CONFIG_DIR}`
+            );
         }
-    } catch {
-        // Missing file or unreadable parent: the subsequent write surfaces
-        // real errors on its own.
+    } catch (err) {
+        if ((err as NodeJS.ErrnoException | undefined)?.code !== 'ENOENT') {
+            throw err;
+        }
+    }
+    fs.mkdirSync(CONFIG_DIR, { recursive: true, mode: 0o700 });
+    const ids = getInvokingUserIds();
+    if (ids) {
+        try {
+            if (!fs.lstatSync(CONFIG_DIR).isSymbolicLink()) {
+                fs.lchownSync(CONFIG_DIR, ids.uid, ids.gid);
+            }
+        } catch {
+            // Best effort only.
+        }
     }
 }
 
 /**
- * Copy `src` to `dest` for backup purposes, symlink-safe.
+ * Atomically write `content` to `destPath` via an exclusive ('wx') temp file
+ * in the same directory, fchowning the open fd before rename so no symlink
+ * or TOCTOU race can redirect writes or ownership changes.
  */
-function safeBackupCopy(src: string, dest: string): void {
-    removeSymlink(dest);
-    fs.copyFileSync(src, dest);
-    chownToInvokingUser(dest);
-}
-
-/**
- * Atomically replace the config file: write to a temp file in the same
- * directory, rename over the target, and keep a `.bak` of the previous
- * known-good state. A crash mid-write can no longer truncate the file, and
- * a bad write never destroys the last good configuration.
- */
-function writeConfigFile(data: string): void {
-    fs.mkdirSync(CONFIG_DIR, { recursive: true });
-    chownToInvokingUser(CONFIG_DIR);
-
-    try {
-        if (fs.existsSync(CONFIG_PATH)) {
-            safeBackupCopy(CONFIG_PATH, `${CONFIG_PATH}.bak`);
-        }
-    } catch {
-        // Best effort only.
-    }
-
-    // Unpredictable name plus exclusive creation ('wx'): a pre-planted file
-    // or symlink at a predictable temp path (e.g. by another local user)
-    // makes openSync fail instead of silently writing through it. Mode 0600
-    // keeps the config private on POSIX systems.
-    const tmpPath = `${CONFIG_PATH}.${process.pid}.${Math.random()
+function atomicWriteFile(
+    destPath: string,
+    content: Buffer,
+    sync = false
+): void {
+    const tmpPath = `${destPath}.${process.pid}.${Math.random()
         .toString(36)
         .slice(2, 10)}.tmp`;
     const fd = fs.openSync(tmpPath, 'wx', 0o600);
     let writeFailed = false;
     try {
-        fs.writeSync(fd, Buffer.from(data, 'utf-8'));
-        // Flush to stable storage before the rename so a crash right after
-        // it can never leave a truncated configs.json behind.
-        fs.fsyncSync(fd);
+        fs.writeSync(fd, content);
+        if (sync) {
+            fs.fsyncSync(fd);
+        }
+        fchownToInvokingUser(fd);
     } catch (error) {
         writeFailed = true;
         throw error;
@@ -206,16 +197,54 @@ function writeConfigFile(data: string): void {
         }
     }
     try {
-        fs.renameSync(tmpPath, CONFIG_PATH);
+        fs.renameSync(tmpPath, destPath);
     } catch (error) {
         try {
             fs.unlinkSync(tmpPath);
         } catch {
-            // Ignore: the temp file must not mask the original error.
+            // Ignore: temp cleanup must not mask the original error.
         }
         throw error;
     }
-    chownToInvokingUser(CONFIG_PATH);
+}
+
+/**
+ * Copy `src` to `dest` for backup purposes without following symlinks at
+ * either `src` or `dest`.
+ */
+function safeBackupCopy(src: string, dest: string): void {
+    ensureSafeConfigDir();
+    const flags = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0);
+    const fd = fs.openSync(src, flags);
+    let content: Buffer;
+    try {
+        if (!fs.fstatSync(fd).isFile()) {
+            return;
+        }
+        content = fs.readFileSync(fd);
+    } finally {
+        fs.closeSync(fd);
+    }
+    atomicWriteFile(dest, content);
+}
+
+/**
+ * Write `data` to `CONFIG_PATH` atomically: create a fresh temp file in the
+ * same directory (0600, exclusive), fsync + fchown it, then rename over the
+ * target. Existing configs are backed up to `configs.json.bak` first.
+ */
+function writeConfigFile(data: string): void {
+    ensureSafeConfigDir();
+
+    try {
+        if (fs.existsSync(CONFIG_PATH)) {
+            safeBackupCopy(CONFIG_PATH, `${CONFIG_PATH}.bak`);
+        }
+    } catch {
+        // Best effort only.
+    }
+
+    atomicWriteFile(CONFIG_PATH, Buffer.from(data, 'utf-8'), true);
 }
 
 export function saveConfigs(configs: DnsConfig[]): void {
@@ -285,14 +314,15 @@ const MAX_QUARANTINE_ENTRIES = 50;
 function quarantineEntries(invalid: unknown[]): void {
     try {
         const quarantinePath = `${CONFIG_PATH}.invalid`;
-        // Never write through a planted symlink (see removeSymlink).
-        removeSymlink(quarantinePath);
+        ensureSafeConfigDir();
         let existing: unknown[] = [];
         try {
-            const parsed: unknown = JSON.parse(
-                fs.readFileSync(quarantinePath, 'utf-8')
-            );
-            if (Array.isArray(parsed)) existing = parsed;
+            if (!fs.lstatSync(quarantinePath).isSymbolicLink()) {
+                const parsed: unknown = JSON.parse(
+                    fs.readFileSync(quarantinePath, 'utf-8')
+                );
+                if (Array.isArray(parsed)) existing = parsed;
+            }
         } catch {
             // Start a fresh quarantine file.
         }
@@ -306,14 +336,17 @@ function quarantineEntries(invalid: unknown[]): void {
                 known.add(key);
             }
         }
-        fs.writeFileSync(
+        atomicWriteFile(
             quarantinePath,
-            JSON.stringify(existing.slice(-MAX_QUARANTINE_ENTRIES), null, 2),
-            'utf-8'
+            Buffer.from(
+                JSON.stringify(
+                    existing.slice(-MAX_QUARANTINE_ENTRIES),
+                    null,
+                    2
+                ),
+                'utf-8'
+            )
         );
-        // Under sudo the quarantine file would otherwise become root-owned
-        // and break later non-elevated writes.
-        chownToInvokingUser(quarantinePath);
     } catch {
         // Best effort only: a failed quarantine write must never break
         // loading.

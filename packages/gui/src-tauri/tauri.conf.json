@@ -12,13 +12,28 @@
     "app": {
         "windows": [
             {
+                "label": "main",
                 "title": "DNSS - DNS Switcher",
                 "width": 900,
                 "height": 640,
                 "minWidth": 720,
                 "minHeight": 520,
                 "resizable": true,
-                "center": true
+                "center": true,
+                "backgroundColor": "#0f1115"
+            },
+            {
+                "label": "tray",
+                "title": "DNSS Tray",
+                "url": "index.html?view=tray",
+                "width": 360,
+                "height": 520,
+                "resizable": false,
+                "decorations": false,
+                "alwaysOnTop": true,
+                "skipTaskbar": true,
+                "visible": false,
+                "backgroundColor": "#0f1115"
             }
         ],
         "security": {

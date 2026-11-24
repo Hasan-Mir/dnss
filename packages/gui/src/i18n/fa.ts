@@ -1,16 +1,16 @@
 /**
-
-* Persian (فارسی) messages. Must implement every key of `Dict` — the
-* compiler fails the build when a key is missing here but present in `en.ts`.
-* Placeholder order may differ from English (e.g. «{name}» at the start);
-* interpolation handles it. Use ZWNJ (نیم‌فاصله) where orthography requires.
-  */
+ * Persian (فارسی) messages. Must implement every key of `Dict` — the
+ * compiler fails the build when a key is missing here but present in `en.ts`.
+ * Placeholder order may differ from English (e.g. «{name}» at the start);
+ * interpolation handles it. Use ZWNJ (نیم‌فاصله) where orthography requires.
+ */
 import type { Dict } from './en';
 
 const fa: Dict = {
-    // Header / dock
+    // Header / navigation
     'app.tagline': 'تغییر DNS',
     'app.toggleTheme': 'تغییر تم',
+    'app.toggleLang': 'تغییر زبان',
     'app.working': 'در حال انجام…',
     'dock.home': 'خانه',
     'dock.servers': 'سرورها',
@@ -34,6 +34,7 @@ const fa: Dict = {
     'common.edit': 'ویرایش',
     'common.add': 'افزودن',
     'common.default': 'پیش‌فرض',
+    'common.active': 'فعال',
     'common.na': 'نامشخص',
 
     // Toasts (error/details values come from the OS and may stay English)
@@ -59,89 +60,115 @@ const fa: Dict = {
     'toast.duplicate': 'سروری با نام «{name}» از قبل وجود دارد',
     'toast.updated': '«{name}» به‌روزرسانی شد',
     'toast.added': '«{name}» اضافه شد',
-    'toast.presetRemoved': '«{name}» از سرورهای آماده حذف شد',
+    'toast.presetRemoved': '«{name}» از سرورهای آماده پنهان شد',
 
     // Home
     'home.customActive': 'DNS سفارشی فعال است',
-    'home.dhcpDefault': 'DHCP (پیش‌فرض)',
-    'home.hintReset': 'برای بازگشت به DHCP کلیک کنید — DNS فعلی ذخیره می‌شود',
-    'home.hintRestore': 'برای بازگرداندن «{name}» کلیک کنید',
-    'home.hintApplyFirst': 'ابتدا از بخش سرورها یک DNS را اعمال کنید',
+    'home.dhcpDefault': 'خودکار (DHCP)',
+    'home.protectAction': 'بازگردانی DNS',
+    'home.disconnectAction': 'قطع و بازگشت به DHCP',
+    'home.chooseServer': 'انتخاب سرور',
+    'home.hintReset': 'بازگشت به DHCP خودکار — DNS فعلی ذخیره می‌ماند',
+    'home.hintRestore': 'بازگرداندن «{name}» روی این آداپتور',
+    'home.hintApplyFirst': 'برای شروع یک سرور از بخش سرورها انتخاب کنید',
     'home.hintNoAdapter': 'هیچ آداپتور شبکهٔ فعالی پیدا نشد',
     'home.noActiveAdapter': 'آداپتور فعالی نیست',
     'home.automatic': 'خودکار (بدون DNS سفارشی)',
-    'home.refreshStatus': 'به‌روزرسانی وضعیت',
-    'home.inUse': 'سرورهای DNS مورد استفاده',
+    'home.refreshStatus': 'به‌روزرسانی',
+    'home.inUse': 'آداپتورهای شبکه',
     'home.noAdapters': 'هیچ آداپتوری پیدا نشد',
     'home.flush': 'پاک کردن کش DNS',
     'home.activeAdapterTitle': 'آداپتور فعال (مسیر پیش‌فرض)',
     'home.staticTitle': 'سرورهای DNS به‌صورت دستی تنظیم شده‌اند (نه از DHCP)',
     'home.staticBadge': 'ثابت',
+    'home.dhcpBadge': 'DHCP',
 
     // Servers
     'servers.title': 'سرورها',
-    'servers.search': 'جست‌وجو در سرورها بر اساس نام یا آدرس…',
+    'servers.search': 'جست‌وجو بر اساس نام یا IPv4…',
+    'servers.filterAll': 'همه',
+    'servers.filterCustom': 'سفارشی',
+    'servers.filterBuiltin': 'آماده',
     'servers.sortTitle': 'مرتب‌سازی سرورها',
-    'servers.sortDefault': 'ترتیب پیش‌فرض',
+    'servers.sortDefault': 'پیش‌فرض',
     'servers.sortName': 'نام',
-    'servers.sortPing': 'پینگ',
-    'servers.benchmark': 'بنچمارک همهٔ سرورها',
+    'servers.sortPing': 'تأخیر',
+    'servers.benchmark': 'بنچمارک همه',
     'servers.benchmarking': 'در حال بنچمارک…',
     'servers.benchTarget': 'هدف بنچمارک',
     'servers.benchTargetHint':
-        'دامنه‌ای که از هر سرور DNS خواسته می‌شود آن را resolve کند — همان تنظیم «هدف بنچمارک» در CLI.',
-    'servers.saved': 'سرورهای ذخیره‌شده',
+        'دامنه‌ای که هنگام سنجش تأخیر بررسی می‌شود (مشترک با CLI).',
+    'servers.saved': 'سرورهای سفارشی',
     'servers.presets': 'سرورهای آماده',
-    'servers.noSavedMatch': 'هیچ سرور ذخیره‌شده‌ای با «{query}» پیدا نشد',
+    'servers.noSavedMatch': 'هیچ سرور سفارشی با «{query}» پیدا نشد',
     'servers.noSavedYet':
-        'هنوز سروری ذخیره نشده — با دکمهٔ بالا یک سرور اضافه کنید',
+        'هنوز سرور سفارشی ذخیره نشده — یک سرور جدید اضافه کنید',
     'servers.noPresetMatch': 'هیچ سرور آماده‌ای با «{query}» پیدا نشد',
-    'servers.pingBadge': 'پینگ',
+    'servers.pingBadge': '—',
     'servers.timeoutBadge': 'بدون پاسخ',
     'servers.errorBadge': 'خطا',
     'servers.measuring': 'در حال اندازه‌گیری تأخیر…',
     'servers.pingTitle': 'پینگ این سرور',
     'servers.ms': '{n} ms',
-    'servers.applyTo': 'اعمال DNS روی آداپتورها',
+    'servers.applyTo': 'آداپتورهای هدف',
+    'servers.applyChooseAdapters': 'انتخاب آداپتورهای هدف',
     'servers.allAdapters': 'همهٔ آداپتورها',
     'servers.deleteConfirm': '«{name}» حذف شود؟',
-    'servers.removePresetConfirm': '«{name}» از سرورهای آماده حذف شود؟',
-    'servers.removePresetHint': 'بعداً می‌توانید از تنظیمات برگردانیدش.',
-    'form.new': 'سرور جدید',
+    'servers.removePresetConfirm': '«{name}» از فهرست آماده پنهان شود؟',
+    'servers.removePresetHint': 'بعداً می‌توانید از تنظیمات بازگردانید.',
+    'form.new': 'افزودن سرور سفارشی',
     'form.edit': 'ویرایش «{name}»',
-    'form.namePh': 'نام (مثلاً DNS منزل)',
-    'form.primaryPh': 'DNS اصلی (IPv4)',
-    'form.altPh': 'DNS جایگزین (اختیاری)',
+    'form.nameLabel': 'نام',
+    'form.primaryLabel': 'DNS اصلی (IPv4)',
+    'form.altLabel': 'DNS جایگزین (اختیاری)',
+    'form.namePh': 'مثلاً DNS دفتر',
+    'form.primaryPh': '1.1.1.1',
+    'form.altPh': '1.0.0.1',
 
     // Settings
     'settings.title': 'تنظیمات',
     'settings.appearance': 'ظاهر',
+    'settings.appearanceDesc': 'نمای ظاهری DNSS را روی دسکتاپ انتخاب کنید.',
     'settings.light': 'روشن',
     'settings.dark': 'تاریک',
     'settings.system': 'سیستم',
     'settings.language': 'زبان',
     'settings.languageHint':
-        'تغییرات بلافاصله اعمال می‌شوند — نیازی به راه‌اندازی دوباره نیست.',
-    'settings.maintenance': 'نگهداری',
+        'بلافاصله اعمال می‌شود و نیازی به راه‌اندازی مجدد نیست.',
+    'settings.maintenance': 'نگهداری شبکه',
     'settings.maintenanceDesc':
-        'تنظیمات دستی DNS را از همهٔ آداپتورها حذف می‌کند و آن‌ها را به حالت خودکار (DHCP) برمی‌گرداند.',
-    'settings.resetAll': 'برگرداندن همهٔ آداپتورها به DHCP',
+        'تنظیمات دستی DNS را از همهٔ آداپتورها پاک می‌کند و آن‌ها را به DHCP خودکار برمی‌گرداند.',
+    'settings.resetAll': 'بازنشانی همه به DHCP',
     'settings.resetConfirm':
         'DNS همهٔ آداپتورها به حالت خودکار (DHCP) برگردانده شود؟',
-    'settings.reset': 'بازنشانی',
-    'settings.hiddenPresets': 'سرورهای آمادهٔ حذف‌شده',
+    'settings.reset': 'بازنشانی همه',
+    'settings.hiddenPresets': 'سرورهای آمادهٔ پنهان‌شده',
     'settings.hiddenPresetsDesc':
-        'این سرورهای آماده از لیست سرورها حذف شده‌اند:',
-    'settings.restorePresets': 'بازگردانی سرورهای آماده',
+        'این سرورهای آماده از فهرست سرورها پنهان شده‌اند:',
+    'settings.restorePresets': 'بازگردانی سرورها',
     'settings.about': 'درباره',
     'settings.aboutSuffix':
-        ' (تغییر DNS) — تغییر DNSها با یک کلیک. رایگان و متن‌باز با مجوز MIT.',
+        ' (تغییر DNS) — تغییر سرورهای DNS با یک کلیک. رایگان و متن‌باز با مجوز MIT.',
     'settings.inspirationBefore':
-        'بخش‌هایی از این برنامه (الگوریتم بنچمارک تأخیر DNS و ایده‌های مربوط به سرورهای آماده) از پروژهٔ متن‌باز ',
-    'settings.inspirationAfter': ' الهام گرفته است. سپاسگزاریم!',
+        'الگوریتم سنجش تأخیر و فهرست سرورهای آماده با الهام از پروژهٔ متن‌باز ',
+    'settings.inspirationAfter': ' ساخته شده است.',
     'settings.privacy': 'حریم خصوصی',
     'settings.privacyBody':
-        'DNSS کاملاً آفلاین اجرا می‌شود: هیچ تله‌متری یا تحلیل آماری انجام نمی‌شود و هیچ درخواست شبکه‌ای ارسال نمی‌کند، به‌جز بنچمارک‌های DNS که خودتان اجرا می‌کنید.',
+        'DNSS کاملاً آفلاین اجرا می‌شود؛ هیچ تله‌متری یا تحلیل آماری وجود ندارد و به‌جز بنچمارک‌هایی که خودتان اجرا می‌کنید، درخواست شبکه‌ای ارسال نمی‌شود.',
+
+    // System Tray Popover
+    'tray.openApp': 'باز کردن برنامهٔ کامل',
+    'tray.quit': 'خروج از DNSS',
+    'tray.protected': 'محافظت‌شده',
+    'tray.dhcp': 'DHCP',
+    'tray.targetActive': 'فعال ({name})',
+    'tray.targetAll': 'همهٔ آداپتورها ({count})',
+    'tray.addCustom': 'سفارشی',
+    'tray.benchmark': 'بنچمارک',
+    'tray.resetDhcp': 'بازگشت DHCP',
+    'tray.restore': 'بازگردانی',
+    'tray.flush': 'پاکسازی کش',
+    'tray.noMatches': 'سروری با «{query}» پیدا نشد',
 };
 
 export default fa;

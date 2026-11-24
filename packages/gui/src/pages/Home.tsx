@@ -3,14 +3,12 @@ import {
     ArrowPathIcon,
     ChevronDownIcon,
     CircleStackIcon,
-    ClockIcon,
-    GlobeAltIcon,
-    PowerIcon,
     ServerStackIcon,
+    ShieldCheckIcon,
+    SignalIcon,
 } from '@heroicons/react/24/outline';
 import type { Adapter, DnsStatus } from '../api';
 import type { I18n } from '../i18n';
-import { getResolvedTheme, ThemeMode } from '../theme';
 
 interface HomePageProps {
     /** Translations + text direction + localized digits. */
@@ -19,14 +17,13 @@ interface HomePageProps {
     activeAdapter: Adapter | null;
     activeDns: DnsStatus | null;
     isCustomDnsActive: boolean;
-    /** Servers remembered for the active adapter — clicking the power
-        circle while on DHCP restores these. */
+    /** Servers remembered for the active adapter — toggling while on DHCP restores these. */
     rememberedServers: string[];
     /** Every known adapter with the servers each one currently uses. */
     adapters: Adapter[];
     /** True while ANY blocking operation runs — disables the controls. */
     busy: boolean;
-    /** True while the power circle's own toggle is running (spinner). */
+    /** True while the hero toggle is running (spinner). */
     toggleBusy: boolean;
     /** True while a DNS flush triggered from here is running (spinner). */
     flushBusy: boolean;
@@ -36,15 +33,12 @@ interface HomePageProps {
     onToggleDns: () => void;
     onFlushDns: () => void;
     refreshStatus: () => void;
+    /** Jump to Servers tab when the user has no remembered DNS yet. */
+    onOpenServers: () => void;
     /** Address -> display name (saved configs + presets). */
     dnsNameLookup: Map<string, string>;
-    themeMode: ThemeMode;
 }
 
-/** One row of the "DNS servers in use" panel: adapter identity at the start,
-    the resolvers it currently uses (annotated with configured names) at the
-    end — the GUI counterpart of the CLI's "Show currently used DNS configs"
-    table. */
 function AdapterRow({
     i18n,
     adapter,
@@ -55,64 +49,80 @@ function AdapterRow({
     dnsNameLookup: Map<string, string>;
 }) {
     return (
-        <li className="flex items-center justify-between gap-3 py-2">
+        <li className="flex items-center justify-between gap-3 px-4 py-2.5">
             <div className="min-w-0">
-                <div className="flex items-center gap-1.5">
-                    {adapter.is_default && (
-                        <span
-                            className="size-1.5 shrink-0 rounded-full bg-success"
-                            title={i18n.t('home.activeAdapterTitle')}
-                        />
-                    )}
-
+                <div className="flex items-center gap-2">
+                    <span
+                        className={`size-2 shrink-0 rounded-full ${
+                            adapter.is_default
+                                ? 'bg-[var(--dnss-accent)]'
+                                : 'bg-[var(--dnss-border-strong)]'
+                        }`}
+                        title={
+                            adapter.is_default
+                                ? i18n.t('home.activeAdapterTitle')
+                                : undefined
+                        }
+                    />
                     <span
                         title={adapter.name}
-                        className="truncate text-sm font-medium"
+                        className="truncate text-[13px] font-medium text-[var(--dnss-ink-1)]"
                     >
                         {adapter.name}
                     </span>
-
-                    {adapter.dns_static && (
-                        <span
-                            className="badge badge-ghost badge-xs shrink-0 font-semibold text-primary"
-                            title={i18n.t('home.staticTitle')}
-                        >
-                            {i18n.t('home.staticBadge')}
-                        </span>
-                    )}
+                    <span
+                        className={`shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-medium ${
+                            adapter.dns_static
+                                ? 'bg-[var(--dnss-accent-soft)] text-[var(--dnss-accent-text)]'
+                                : 'bg-[var(--dnss-raised)] text-[var(--dnss-ink-3)]'
+                        }`}
+                        title={
+                            adapter.dns_static
+                                ? i18n.t('home.staticTitle')
+                                : undefined
+                        }
+                    >
+                        {adapter.dns_static
+                            ? i18n.t('home.staticBadge')
+                            : i18n.t('home.dhcpBadge')}
+                    </span>
                 </div>
 
                 {adapter.kind && (
                     <div
                         title={adapter.kind}
-                        className="truncate text-[11px] opacity-50"
+                        className="mt-0.5 truncate ps-4 text-[11px] text-[var(--dnss-ink-3)]"
                     >
                         {adapter.kind}
                     </div>
                 )}
             </div>
 
-            <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
                 {adapter.dns_servers.length === 0 ? (
-                    <span className="text-xs opacity-40">
+                    <span className="text-[12px] text-[var(--dnss-ink-3)]">
                         {i18n.t('common.na')}
                     </span>
                 ) : (
-                    adapter.dns_servers.map((ip) => (
-                        <span
-                            key={ip}
-                            dir="ltr"
-                            className="badge badge-ghost badge-sm gap-1.5 font-mono text-xs"
-                        >
-                            <span dir="ltr">{ip}</span>
-
-                            {dnsNameLookup.get(ip) && (
-                                <span className="font-sans opacity-60">
-                                    {dnsNameLookup.get(ip)}
+                    adapter.dns_servers.map((ip) => {
+                        const provider = dnsNameLookup.get(ip);
+                        return (
+                            <span
+                                key={ip}
+                                dir="ltr"
+                                className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--dnss-raised)] px-2 py-1 text-[12px] text-[var(--dnss-ink-1)]"
+                            >
+                                <span className="font-mono tabular-nums">
+                                    {ip}
                                 </span>
-                            )}
-                        </span>
-                    ))
+                                {provider && (
+                                    <span className="font-sans text-[11px] text-[var(--dnss-ink-3)]">
+                                        {provider}
+                                    </span>
+                                )}
+                            </span>
+                        );
+                    })
                 )}
             </div>
         </li>
@@ -133,16 +143,12 @@ export default function HomePage({
     onToggleDns,
     onFlushDns,
     refreshStatus,
+    onOpenServers,
     dnsNameLookup,
-    themeMode,
 }: HomePageProps) {
     const { t, dir, num } = i18n;
-    const statusLabel = isCustomDnsActive
-        ? t('home.customActive')
-        : t('home.dhcpDefault');
+    const [showAdapters, setShowAdapters] = useState(true);
 
-    // Prefer the statically configured servers; fall back to whatever is
-    // currently in use (DHCP-provided). De-duplicated for display.
     const displayServers = Array.from(
         new Set(
             activeDns?.static_servers.length
@@ -151,24 +157,25 @@ export default function HomePage({
         )
     );
 
+    const primaryName = displayServers[0]
+        ? dnsNameLookup.get(displayServers[0])
+        : undefined;
+
     const canRestore = rememberedServers.length > 0;
     const restoreLabel = (() => {
         const firstName = dnsNameLookup.get(rememberedServers[0] ?? '');
         if (firstName) return firstName;
-        // The saved config behind the remembered addresses may have been
-        // deleted since; the bare addresses are still restorable.
         return rememberedServers.join(' · ');
     })();
 
-    // ON: custom DNS in use -> click resets to DHCP (remembering it).
-    // restore: on DHCP with a remembered DNS -> click brings it back.
-    // off: nothing to toggle yet.
-    const circleState = isCustomDnsActive
-        ? 'on'
-        : canRestore
-          ? 'restore'
-          : 'off';
-    const circleHint = isCustomDnsActive
+    const canToggle =
+        Boolean(activeAdapter) && (isCustomDnsActive || canRestore);
+
+    const statusHeadline = isCustomDnsActive
+        ? primaryName || t('home.customActive')
+        : t('home.dhcpDefault');
+
+    const statusSubtitle = isCustomDnsActive
         ? t('home.hintReset')
         : canRestore
           ? t('home.hintRestore', { name: restoreLabel })
@@ -176,126 +183,203 @@ export default function HomePage({
             ? t('home.hintApplyFirst')
             : t('home.hintNoAdapter');
 
-    const [showAdapters, setShowAdapters] = useState(true);
-
     return (
-        <div className="mx-auto flex w-full max-w-xl flex-col gap-4">
-            <div className="card border border-base-300/40 bg-base-100 shadow-sm">
-                <div className="card-body items-center gap-3 py-8">
-                    <button
-                        type="button"
-                        title={circleHint}
-                        aria-label={circleHint}
-                        onClick={onToggleDns}
-                        disabled={
-                            busy || !activeAdapter || circleState === 'off'
-                        }
-                        className={`grid size-36 place-items-center rounded-full transition-all ${
-                            circleState === 'on'
-                                ? 'bg-success text-success-content ring-glow-success'
-                                : circleState === 'restore'
-                                  ? getResolvedTheme(themeMode) === 'dark'
-                                      ? 'text-white bg-gray-500 ring-gray-500'
-                                      : 'text-white bg-gray-300 ring-gray-300'
-                                  : 'bg-base-300 text-base-content/70 ring-glow-base'
-                        } ${
-                            busy
-                                ? 'cursor-wait'
-                                : circleState === 'off'
-                                  ? 'cursor-not-allowed'
-                                  : 'cursor-pointer hover:scale-[1.03] active:scale-95'
-                        } disabled:cursor-not-allowed`}
-                    >
-                        {toggleBusy ? (
-                            <span className="loading loading-spinner size-14" />
-                        ) : circleState === 'on' ? (
-                            <GlobeAltIcon className="size-16" />
-                        ) : circleState === 'restore' ? (
-                            <ClockIcon className="size-16" />
-                        ) : (
-                            <PowerIcon className="size-16" />
-                        )}
-                    </button>
+        <div className="mx-auto flex w-full max-w-2xl flex-col gap-4">
+            {/* Active Connection Hero Panel */}
+            <section className="dnss-card rounded-2xl p-5">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div className="flex min-w-0 items-start gap-3.5">
+                        <div
+                            className={`grid size-11 shrink-0 place-items-center rounded-xl transition-colors ${
+                                isCustomDnsActive
+                                    ? 'bg-[var(--dnss-accent)] text-[var(--dnss-accent-ink)]'
+                                    : 'bg-[var(--dnss-raised)] text-[var(--dnss-ink-3)]'
+                            }`}
+                        >
+                            {toggleBusy ? (
+                                <span className="loading loading-spinner loading-sm" />
+                            ) : isCustomDnsActive ? (
+                                <ShieldCheckIcon className="size-6 shrink-0" />
+                            ) : (
+                                <SignalIcon className="size-6 shrink-0" />
+                            )}
+                        </div>
 
-                    <div
-                        style={{ marginTop: 10 }}
-                        className={`text-xl font-bold ${isCustomDnsActive ? 'text-success' : 'opacity-60'}`}
-                    >
-                        {statusLabel}
+                        <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <h2 className="m-0 text-[18px] font-semibold leading-snug text-[var(--dnss-ink-1)]">
+                                    {statusHeadline}
+                                </h2>
+                                <span
+                                    className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                                        isCustomDnsActive
+                                            ? 'bg-[var(--dnss-accent-soft)] text-[var(--dnss-accent-text)]'
+                                            : 'bg-[var(--dnss-raised)] text-[var(--dnss-ink-2)]'
+                                    }`}
+                                >
+                                    <span
+                                        className={`size-1.5 rounded-full ${
+                                            isCustomDnsActive
+                                                ? 'bg-[var(--dnss-accent)]'
+                                                : 'bg-[var(--dnss-ink-3)]'
+                                        }`}
+                                    />
+                                    {isCustomDnsActive
+                                        ? t('home.customActive')
+                                        : t('home.dhcpBadge')}
+                                </span>
+                            </div>
+
+                            <p className="mt-1 text-[13px] leading-snug text-[var(--dnss-ink-2)]">
+                                {statusSubtitle}
+                            </p>
+                        </div>
                     </div>
 
-                    <div className="text-xs opacity-60">{circleHint}</div>
+                    {/* Tactile WARP-style Power Switch */}
+                    <button
+                        type="button"
+                        role="switch"
+                        aria-checked={isCustomDnsActive}
+                        aria-label={
+                            isCustomDnsActive
+                                ? t('home.disconnectAction')
+                                : t('home.protectAction')
+                        }
+                        title={statusSubtitle}
+                        disabled={busy || !canToggle}
+                        onClick={onToggleDns}
+                        className={`relative inline-flex h-8 w-14 shrink-0 items-center rounded-full p-1 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--dnss-accent)] ${
+                            isCustomDnsActive
+                                ? 'bg-[var(--dnss-accent)]'
+                                : 'bg-[var(--dnss-border-strong)]'
+                        } ${
+                            busy || !canToggle
+                                ? 'cursor-not-allowed opacity-50'
+                                : 'cursor-pointer'
+                        }`}
+                    >
+                        <span
+                            className={`size-6 rounded-full bg-white shadow-xs transition-transform duration-150 ${
+                                isCustomDnsActive
+                                    ? dir === 'rtl'
+                                        ? '-translate-x-6'
+                                        : 'translate-x-6'
+                                    : 'translate-x-0'
+                            }`}
+                        />
+                    </button>
+                </div>
 
-                    <div dir="ltr" className="flex items-center gap-2 text-sm">
-                        <span className="font-medium">
+                {/* Active Adapter & IPv4 Resolvers Strip */}
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-[var(--dnss-raised)] px-3.5 py-3">
+                    <div className="flex min-w-0 items-center gap-2">
+                        <span className="size-2 shrink-0 rounded-full bg-[var(--dnss-accent)]" />
+                        <span
+                            dir="ltr"
+                            className="truncate text-[13px] font-medium text-[var(--dnss-ink-1)]"
+                        >
                             {activeAdapter
                                 ? activeAdapter.name
                                 : t('home.noActiveAdapter')}
                         </span>
                         {activeAdapter?.kind && (
-                            <span className="badge badge-ghost badge-sm">
+                            <span className="shrink-0 rounded-md bg-[var(--dnss-surface)] px-1.5 py-0.5 text-[11px] text-[var(--dnss-ink-3)]">
                                 {activeAdapter.kind}
                             </span>
                         )}
                     </div>
 
-                    <div className="flex flex-col items-center gap-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
                         {displayServers.length > 0 ? (
                             displayServers.map((ip) => (
-                                <div
-                                    dir="ltr"
+                                <span
                                     key={ip}
-                                    className="font-mono text-sm opacity-80"
+                                    dir="ltr"
+                                    className="rounded-lg bg-[var(--dnss-surface)] px-2.5 py-1 font-mono text-[12px] font-medium tabular-nums text-[var(--dnss-ink-1)]"
                                 >
-                                    {dnsNameLookup.get(ip) && (
-                                        <strong className="me-2 badge badge-soft badge-primary">
-                                            {dnsNameLookup.get(ip)}
-                                        </strong>
-                                    )}
-
-                                    <span dir="ltr">{ip}</span>
-                                </div>
+                                    {ip}
+                                </span>
                             ))
                         ) : (
-                            <div className="text-sm opacity-60">
+                            <span className="text-[12px] text-[var(--dnss-ink-3)]">
                                 {t('home.automatic')}
-                            </div>
+                            </span>
                         )}
                     </div>
+                </div>
+
+                {/* Primary Action Row */}
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                    {canToggle ? (
+                        <button
+                            type="button"
+                            disabled={busy}
+                            onClick={onToggleDns}
+                            className={`inline-flex h-9 items-center gap-2 rounded-lg px-3.5 text-[13px] font-medium transition-colors ${
+                                isCustomDnsActive
+                                    ? 'bg-[var(--dnss-raised)] text-[var(--dnss-ink-1)] hover:bg-[var(--dnss-hover)]'
+                                    : 'bg-[var(--dnss-accent)] text-[var(--dnss-accent-ink)] hover:bg-[var(--dnss-accent-hover)]'
+                            } disabled:cursor-not-allowed disabled:opacity-50`}
+                        >
+                            {toggleBusy && (
+                                <span className="loading loading-spinner loading-xs" />
+                            )}
+                            {isCustomDnsActive
+                                ? t('home.disconnectAction')
+                                : t('home.protectAction')}
+                        </button>
+                    ) : (
+                        <button
+                            type="button"
+                            onClick={onOpenServers}
+                            className="inline-flex h-9 items-center gap-2 rounded-lg bg-[var(--dnss-accent)] px-3.5 text-[13px] font-medium text-[var(--dnss-accent-ink)] transition-colors hover:bg-[var(--dnss-accent-hover)]"
+                        >
+                            <ServerStackIcon className="size-4 shrink-0" />
+                            {t('home.chooseServer')}
+                        </button>
+                    )}
 
                     <button
-                        className="btn btn-ghost btn-xs"
-                        onClick={refreshStatus}
+                        type="button"
+                        disabled={busy}
+                        onClick={onFlushDns}
+                        className="inline-flex h-9 items-center gap-2 rounded-lg bg-[var(--dnss-raised)] px-3 text-[13px] font-medium text-[var(--dnss-ink-1)] transition-colors hover:bg-[var(--dnss-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                        {flushBusy ? (
+                            <span className="loading loading-spinner loading-xs" />
+                        ) : (
+                            <CircleStackIcon className="size-4 shrink-0 text-[var(--dnss-ink-2)]" />
+                        )}
+                        {t('home.flush')}
+                    </button>
+
+                    <button
+                        type="button"
                         disabled={busy || refreshing}
+                        onClick={refreshStatus}
+                        className="ms-auto inline-flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-[12px] font-medium text-[var(--dnss-ink-2)] transition-colors hover:bg-[var(--dnss-hover)] hover:text-[var(--dnss-ink-1)] disabled:cursor-not-allowed disabled:opacity-50"
                     >
                         <ArrowPathIcon
-                            className={`size-3.5 ${
+                            className={`size-4 shrink-0 ${
                                 refreshing ? 'animate-spin' : ''
                             }`}
                         />
                         {t('home.refreshStatus')}
                     </button>
                 </div>
-            </div>
+            </section>
 
-            {/* Per-adapter DNS overview, the GUI version of the CLI's
-                "Show currently used DNS configs" table. No floating panels
-                live inside, so the collapsed-size wrapper can always clip. */}
-            <section className="rounded-xl border border-base-300/40 bg-base-100 shadow-sm">
-                <div
-                    role="button"
-                    tabIndex={0}
-                    className="flex w-full cursor-pointer select-none items-center gap-2 px-4 py-3 outline-none"
+            {/* Network Adapters Overview */}
+            <section className="dnss-card overflow-hidden rounded-2xl">
+                <button
+                    type="button"
+                    className="flex w-full cursor-pointer select-none items-center gap-2 px-4 py-3 text-start transition-colors hover:bg-[var(--dnss-hover)]"
                     onClick={() => setShowAdapters((v) => !v)}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault();
-                            setShowAdapters((v) => !v);
-                        }
-                    }}
+                    aria-expanded={showAdapters}
                 >
                     <ChevronDownIcon
-                        className={`size-4 opacity-60 transition-transform duration-200 ${
+                        className={`size-4 shrink-0 text-[var(--dnss-ink-3)] transition-transform duration-150 ${
                             showAdapters
                                 ? ''
                                 : dir === 'rtl'
@@ -303,22 +387,22 @@ export default function HomePage({
                                   : '-rotate-90'
                         }`}
                     />
-                    <ServerStackIcon className="size-4 opacity-70" />
-                    <span className="text-sm font-semibold">
+                    <ServerStackIcon className="size-4 shrink-0 text-[var(--dnss-ink-2)]" />
+                    <span className="text-[13px] font-semibold text-[var(--dnss-ink-1)]">
                         {t('home.inUse')}
                     </span>
-                    <span className="badge badge-ghost badge-sm">
+                    <span className="rounded-md bg-[var(--dnss-raised)] px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-[var(--dnss-ink-2)]">
                         {num(adapters.length)}
                     </span>
-                    <span className="grow" />
-                </div>
+                </button>
+
                 <div
-                    className={`grid overflow-hidden transition-[grid-template-rows] duration-200 ease-out ${
+                    className={`grid overflow-hidden transition-[grid-template-rows] duration-150 ease-out ${
                         showAdapters ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
                     }`}
                 >
                     <div className="min-h-0">
-                        <ul className="divide-y divide-base-300/40 px-4 pb-2">
+                        <ul className="divide-y divide-[var(--dnss-border)] border-t border-[var(--dnss-border)]">
                             {adapters.map((adapter) => (
                                 <AdapterRow
                                     key={adapter.name}
@@ -329,7 +413,7 @@ export default function HomePage({
                             ))}
 
                             {adapters.length === 0 && (
-                                <li className="py-2 text-center text-xs opacity-60">
+                                <li className="px-4 py-4 text-center text-[12px] text-[var(--dnss-ink-3)]">
                                     {t('home.noAdapters')}
                                 </li>
                             )}
@@ -337,23 +421,6 @@ export default function HomePage({
                     </div>
                 </div>
             </section>
-
-            <div className="flex justify-center">
-                <button
-                    className="btn btn-ghost"
-                    onClick={onFlushDns}
-                    disabled={busy}
-                >
-                    {/* Same icon slot as the Benchmark button: the spinner
-                        replaces the icon so the label never shifts. */}
-                    {flushBusy ? (
-                        <span className="loading loading-spinner loading-xs" />
-                    ) : (
-                        <CircleStackIcon className="size-4" />
-                    )}
-                    {t('home.flush')}
-                </button>
-            </div>
         </div>
     );
 }

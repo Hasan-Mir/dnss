@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { listen } from '@tauri-apps/api/event';
 import {
     CheckCircleIcon,
     Cog6ToothIcon,
@@ -37,24 +38,14 @@ export type Page = 'home' | 'servers' | 'settings';
 /** Where a DNS change should land: every adapter, or an explicit list. */
 export type ApplyTargets = 'all' | string[];
 
-/** Which control started the blocking operation that is currently running.
-    Only the initiating control renders a spinner; everything else merely
-    disables, so clicking one button never makes unrelated buttons pretend
-    to be working. */
+/** Which control started the blocking operation that is currently running. */
 type BusyOp =
     | { kind: 'apply'; id: string }
     | { kind: 'flush' }
     | { kind: 'reset-all' }
     | null;
 
-/** Short OS commands (DNS cache flush) finish faster than a spinner can be
-    perceived; hold the busy state for at least this long so the indicator
-    reads as feedback instead of a flicker. */
 const MIN_BUSY_MS = 700;
-
-// Built-in presets the user removed from the Servers list. Purely a display
-// preference of the GUI (the CLI is unaffected), so it lives in localStorage
-// like the theme and language — not in the CLI-shared configs.json.
 const HIDDEN_PRESETS_KEY = 'dnss.hiddenPresets';
 
 function loadHiddenPresets(): string[] {
@@ -123,15 +114,11 @@ export default function App({
         useState<string[]>(loadHiddenPresets);
     const [loadError, setLoadError] = useState<string | null>(null);
     const [busyOp, setBusyOp] = useState<BusyOp>(null);
-    // Status refreshes run outside `busy` (they also happen on app start),
-    // but the refresh button and loading bar must still reflect them.
     const [refreshing, setRefreshing] = useState(false);
     const [toast, setToast] = useState<{
         message: string;
         kind: 'success' | 'error';
     } | null>(null);
-    // Keep the active timer handle so consecutive toasts don't dismiss each
-    // other after a fraction of their display time.
     const toastTimer = useRef<number | null>(null);
 
     // Sync language from external prop
@@ -213,10 +200,22 @@ export default function App({
         });
     }, []);
 
-    // Saved custom servers live in ~/.dnss/configs.json (shared with the
-    // CLI); the app owns the list so Home can annotate addresses with their
-    // configured names and Servers can edit the list in place.
+    // Sync theme, language, and hidden presets if modified from the tray window.
     useEffect(() => {
+        const onStorage = (e: StorageEvent) => {
+            if (e.key === 'dnss.theme' && !externalTheme) {
+                setTheme(loadTheme());
+            } else if (e.key === 'dnss.lang' && !externalLang) {
+                setLang(loadLang());
+            } else if (e.key === HIDDEN_PRESETS_KEY) {
+                setHiddenPresets(loadHiddenPresets());
+            }
+        };
+        window.addEventListener('storage', onStorage);
+        return () => window.removeEventListener('storage', onStorage);
+    }, [externalTheme, externalLang]);
+
+    const loadConfigs = useCallback(() => {
         if (!isDesktopApp()) return;
         api.getConfigs()
             .then(setConfigs)
@@ -230,15 +229,14 @@ export default function App({
             });
     }, [showToast]);
 
-    // Overlapping refreshes (rapid clicks, apply + refresh) must not apply
-    // out of order; only the latest invocation may update state.
+    useEffect(() => {
+        loadConfigs();
+    }, [loadConfigs]);
+
     const refreshSeq = useRef(0);
 
     const refreshStatus = useCallback(async (opts?: { silent?: boolean }) => {
         const seq = ++refreshSeq.current;
-        // Silent refreshes (after an apply/reset) update the data while the
-        // initiating control's own spinner is showing; only user-initiated
-        // refreshes spin the Refresh status icon.
         if (!opts?.silent) {
             setRefreshing(true);
         }
@@ -263,15 +261,10 @@ export default function App({
             if (seq !== refreshSeq.current) {
                 return;
             }
-            // Surface backend/OS failures instead of silently showing an
-            // empty state that looks like "nothing configured".
             setActiveAdapter(null);
             setActiveDns(null);
             setLoadError(String(error));
         } finally {
-            // A stale call must not clear a newer invocation's flag. The
-            // latest call always clears, silent or not: no refresh is in
-            // flight anymore at that point.
             if (seq === refreshSeq.current) {
                 setRefreshing(false);
             }
@@ -283,13 +276,50 @@ export default function App({
         refreshStatus();
     }, [refreshStatus]);
 
+    // Stay in sync when the tray popover mutates DNS state or requests a tab.
+    useEffect(() => {
+        if (!isDesktopApp()) return;
+        let disposed = false;
+        let unlistenState: (() => void) | null = null;
+        let unlistenNav: (() => void) | null = null;
+
+        void listen('dnss:state-changed', () => {
+            void refreshStatus({ silent: true });
+            loadConfigs();
+        })
+            .then((fn) => {
+                if (disposed) fn();
+                else unlistenState = fn;
+            })
+            .catch(() => {});
+
+        void listen<string>('dnss:navigate', (event) => {
+            const target = event.payload;
+            if (
+                target === 'home' ||
+                target === 'servers' ||
+                target === 'settings'
+            ) {
+                setPage(target);
+            }
+        })
+            .then((fn) => {
+                if (disposed) fn();
+                else unlistenNav = fn;
+            })
+            .catch(() => {});
+
+        return () => {
+            disposed = true;
+            unlistenState?.();
+            unlistenNav?.();
+        };
+    }, [refreshStatus, loadConfigs]);
+
     const handleApplyServers = useCallback(
         async (servers: string[], targets: ApplyTargets, busyId: string) => {
             try {
                 setBusyOp({ kind: 'apply', id: busyId });
-                // One backend round trip for any number of adapters; the
-                // backend validates the names against the OS and reports
-                // per-adapter outcomes.
                 const outcomes = await api.setDnsMany(
                     targets === 'all' ? null : targets,
                     servers
@@ -306,7 +336,10 @@ export default function App({
                     showToast(
                         t('toast.failed', {
                             details: failures
-                                .map((f) => `${f.adapter}: ${f.error}`)
+                                .map(
+                                    (f) =>
+                                        `${f.adapter}: ${f.error || 'Unknown error'}`
+                                )
                                 .join('; '),
                         }),
                         'error'
@@ -343,9 +376,6 @@ export default function App({
         [refreshStatus, showToast, t]
     );
 
-    // The Home power circle: remembers the DNS an adapter was using so the
-    // same click that resets to DHCP can later restore it. Memory is keyed
-    // per adapter (switching networks must not restore the wrong servers).
     const dnsMemoryKey = (adapter: string) => `dnss.lastDns.${adapter}`;
 
     const readDnsMemory = useCallback((adapter: string | null): string[] => {
@@ -368,10 +398,6 @@ export default function App({
         }
     }, []);
 
-    // Track the adapter's current custom DNS: whenever one is observed in
-    // use, it becomes the restore candidate. This keeps the memory correct
-    // no matter where a change came from — the power circle, the Servers
-    // tab, or even the CLI editing the same adapter.
     useEffect(() => {
         if (
             activeAdapter &&
@@ -397,8 +423,6 @@ export default function App({
             return;
         }
         if (activeDns.static_servers.length > 0) {
-            // Custom DNS is ON: remember it, then reset to DHCP. The memory
-            // write is what makes the next click able to restore.
             localStorage.setItem(
                 dnsMemoryKey(activeAdapter.name),
                 JSON.stringify(activeDns.static_servers)
@@ -406,14 +430,10 @@ export default function App({
             await handleApplyServers([], [activeAdapter.name], 'home-circle');
         } else {
             const servers = readDnsMemory(activeAdapter.name);
-
             if (servers.length === 0) {
                 showToast(t('toast.noRememberedDns'), 'error');
                 return;
             }
-
-            // Restore works with the bare remembered addresses even if the
-            // saved configuration behind them was deleted in the meantime.
             await handleApplyServers(
                 servers,
                 [activeAdapter.name],
@@ -432,8 +452,6 @@ export default function App({
     const handleFlushDns = useCallback(async () => {
         try {
             setBusyOp({ kind: 'flush' });
-            // ipconfig /flushdns often finishes in well under a second;
-            // the minimum duration keeps its spinner readable.
             await withMinDuration(api.flushDns(), MIN_BUSY_MS);
             showToast(t('toast.flushed'));
         } catch (error) {
@@ -457,7 +475,10 @@ export default function App({
                 showToast(
                     t('toast.failed', {
                         details: failures
-                            .map((f) => `${f.adapter}: ${f.error}`)
+                            .map(
+                                (f) =>
+                                    `${f.adapter}: ${f.error || 'Unknown error'}`
+                            )
                             .join('; '),
                     }),
                     'error'
@@ -476,8 +497,6 @@ export default function App({
         }
     }, [refreshStatus, showToast, t]);
 
-    // Persist first, update state only on success: an optimistic update made
-    // entries that failed to save look stored (and applyable) until reload.
     const persistConfigs = useCallback(
         async (next: DnsConfig[]): Promise<boolean> => {
             try {
@@ -507,8 +526,6 @@ export default function App({
         setHiddenPresets([]);
     }, []);
 
-    // Address -> display name lookup (saved configs + built-in presets), so
-    // Home can show e.g. "1.1.1.1 — Cloudflare" like the CLI tables do.
     const dnsNameLookup = useMemo(() => {
         const lookup = new Map<string, string>();
         const add = (address: string | undefined, name: string) => {
@@ -528,91 +545,172 @@ export default function App({
     }, [configs]);
 
     const busy = busyOp !== null;
-
     const isCustomDnsActive = Boolean(
         activeDns && activeDns.static_servers.length > 0
     );
 
-    // The UI depends on the Tauri IPC bridge, which only exists inside the
-    // desktop window. In a plain browser (localhost:1420) every command
-    // would fail, so explain that up front instead of a screen of
-    // "Cannot read properties of undefined (reading 'invoke')" errors.
     if (!isDesktopApp()) {
         return (
-            <div className="flex h-full flex-col">
-                <main className="grow overflow-y-auto p-6">
-                    <div className="card mx-auto mt-16 w-full max-w-md border border-base-300/40 bg-base-100 shadow-sm">
-                        <div className="card-body gap-3">
-                            <h2 className="card-title">
-                                {t('nodesktop.title')}
-                            </h2>
-                            <p className="text-sm leading-relaxed">
-                                {t('nodesktop.body')}
-                            </p>
-                            <p className="text-xs leading-relaxed opacity-60">
-                                {t('nodesktop.devPrefix')}
-                                <code className="rounded bg-base-200 px-1.5 py-0.5 font-mono text-[11px]">
-                                    npm run dev
-                                </code>
-                                {t('nodesktop.devSuffix')}
-                            </p>
-                        </div>
+            <div className="flex h-full items-center justify-center bg-[var(--dnss-canvas)] p-6">
+                <div className="dnss-card w-full max-w-md rounded-2xl p-5">
+                    <div className="flex items-center gap-2.5">
+                        <img
+                            src={appIcon}
+                            alt="DNSS"
+                            className="size-7 shrink-0 select-none"
+                            draggable={false}
+                        />
+                        <h2 className="m-0 text-[15px] font-semibold text-[var(--dnss-ink-1)]">
+                            {t('nodesktop.title')}
+                        </h2>
                     </div>
-                </main>
+                    <p className="mt-2.5 text-[13px] leading-relaxed text-[var(--dnss-ink-2)]">
+                        {t('nodesktop.body')}
+                    </p>
+                    <p className="mt-2 text-[12px] leading-relaxed text-[var(--dnss-ink-3)]">
+                        {t('nodesktop.devPrefix')}
+                        <code className="rounded bg-[var(--dnss-raised)] px-1.5 py-0.5 font-mono text-[11px] text-[var(--dnss-ink-1)]">
+                            npm run dev
+                        </code>
+                        {t('nodesktop.devSuffix')}
+                    </p>
+                </div>
             </div>
         );
     }
 
+    const activeProviderName = activeDns?.static_servers[0]
+        ? (dnsNameLookup.get(activeDns.static_servers[0]) ??
+          activeDns.static_servers[0])
+        : t('home.dhcpBadge');
+
     const toastMessage = toast?.message ?? loadError;
     const toastIsError = toast ? toast.kind === 'error' : true;
 
+    const navItems: {
+        id: Page;
+        label: string;
+        icon: typeof HomeIcon;
+    }[] = [
+        { id: 'home', label: t('dock.home'), icon: HomeIcon },
+        { id: 'servers', label: t('dock.servers'), icon: ServerStackIcon },
+        { id: 'settings', label: t('dock.settings'), icon: Cog6ToothIcon },
+    ];
+
     return (
-        <div className="flex h-full flex-col">
-            <header className="flex select-none items-center justify-between border-b border-base-300/60 bg-base-100 px-4 py-2.5">
-                <div className="flex items-center gap-2.5">
+        <div className="@container flex h-full w-full overflow-hidden bg-[var(--dnss-canvas)] text-[var(--dnss-ink-1)]">
+            {/* Full-height Sidebar Navigation Rail */}
+            <aside className="flex h-full w-[196px] shrink-0 select-none flex-col border-e border-[var(--dnss-border)] bg-[var(--dnss-sidebar)] @max-[680px]:w-[148px]">
+                {/* Brand Lockup */}
+                <div className="flex items-center gap-2.5 px-4 pt-4 pb-3">
                     <img
                         src={appIcon}
                         alt="DNSS"
-                        className="size-8 select-none"
+                        className="size-7 shrink-0 select-none"
                         draggable={false}
                     />
-                    <span className="text-lg font-bold tracking-wide">
-                        DNSS
-                    </span>
-                    <span className="text-xs opacity-60">
-                        {t('app.tagline')}
-                    </span>
+                    <div className="min-w-0">
+                        <div className="truncate text-[14px] font-bold leading-tight text-[var(--dnss-ink-1)]">
+                            DNSS
+                        </div>
+                        <div className="truncate text-[11px] leading-tight text-[var(--dnss-ink-3)]">
+                            {t('app.tagline')}
+                        </div>
+                    </div>
                 </div>
-                <button
-                    className="btn btn-circle btn-ghost btn-sm"
-                    title={t('app.toggleTheme')}
-                    onClick={() => {
-                        const currentResolved = getResolvedTheme(theme);
-                        const next =
-                            currentResolved === 'dark' ? 'light' : 'dark';
-                        handleThemeChange(next);
-                    }}
-                >
-                    <ThemeIcon mode={theme} className="size-5" />
-                </button>
-            </header>
 
-            {/* App-wide busy indicator: DNS changes run OS commands that take
-                a moment; without this the UI can look frozen mid-apply. */}
-            {(busy || refreshing) && (
-                <div
-                    className="loading-bar shrink-0"
-                    role="status"
-                    aria-label={t('app.working')}
-                />
-            )}
+                {/* Primary Navigation */}
+                <nav className="flex flex-1 flex-col gap-1 px-2.5 py-2">
+                    {navItems.map((item) => {
+                        const Icon = item.icon;
+                        const active = page === item.id;
+                        return (
+                            <button
+                                key={item.id}
+                                type="button"
+                                onClick={() => setPage(item.id)}
+                                className={`flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13px] font-medium transition-colors ${
+                                    active
+                                        ? 'bg-[var(--dnss-surface)] text-[var(--dnss-ink-1)] shadow-xs'
+                                        : 'text-[var(--dnss-ink-2)] hover:bg-[var(--dnss-hover)] hover:text-[var(--dnss-ink-1)]'
+                                }`}
+                            >
+                                <Icon
+                                    className={`size-4 shrink-0 ${
+                                        active
+                                            ? 'text-[var(--dnss-accent)]'
+                                            : 'text-[var(--dnss-ink-3)]'
+                                    }`}
+                                />
+                                <span className="truncate">{item.label}</span>
+                            </button>
+                        );
+                    })}
+                </nav>
 
-            <main className="grow overflow-y-auto px-4 py-5 pb-24">
-                <div className="flex w-full flex-col gap-4">
+                {/* Compact Status & Utility Footer */}
+                <div className="border-t border-[var(--dnss-border)] p-2.5">
+                    <div className="mb-2 flex items-center gap-2 rounded-lg bg-[var(--dnss-surface)] px-2.5 py-1.5">
+                        <span
+                            className={`size-2 shrink-0 rounded-full ${
+                                isCustomDnsActive
+                                    ? 'bg-[var(--dnss-accent)]'
+                                    : 'bg-[var(--dnss-ink-3)]'
+                            }`}
+                        />
+                        <span className="truncate text-[12px] font-medium text-[var(--dnss-ink-1)]">
+                            {activeProviderName}
+                        </span>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-1">
+                        <button
+                            type="button"
+                            title={t('app.toggleTheme')}
+                            onClick={() => {
+                                const currentResolved = getResolvedTheme(theme);
+                                handleThemeChange(
+                                    currentResolved === 'dark'
+                                        ? 'light'
+                                        : 'dark'
+                                );
+                            }}
+                            className="inline-flex h-7 items-center gap-1.5 rounded-lg px-2 text-[12px] text-[var(--dnss-ink-2)] transition-colors hover:bg-[var(--dnss-hover)] hover:text-[var(--dnss-ink-1)]"
+                        >
+                            <ThemeIcon
+                                mode={theme}
+                                className="size-4 shrink-0"
+                            />
+                        </button>
+
+                        <button
+                            type="button"
+                            title={t('app.toggleLang')}
+                            onClick={() =>
+                                handleLangChange(lang === 'en' ? 'fa' : 'en')
+                            }
+                            className="inline-flex h-7 items-center rounded-lg px-2 text-[11px] font-semibold uppercase text-[var(--dnss-ink-2)] transition-colors hover:bg-[var(--dnss-hover)] hover:text-[var(--dnss-ink-1)]"
+                        >
+                            {lang === 'en' ? 'FA' : 'EN'}
+                        </button>
+                    </div>
+                </div>
+            </aside>
+
+            {/* Main Content Column */}
+            <div className="relative flex min-w-0 flex-1 flex-col">
+                {(busy || refreshing) && (
+                    <div
+                        className="loading-bar absolute inset-x-0 top-0 z-20"
+                        role="status"
+                        aria-label={t('app.working')}
+                    />
+                )}
+
+                <main className="min-h-0 flex-1 overflow-y-auto px-6 py-5 @max-[680px]:px-3.5 @max-[680px]:py-3.5">
                     <div hidden={page !== 'home'}>
                         <HomePage
                             i18n={i18n}
-                            themeMode={theme}
                             activeAdapter={activeAdapter}
                             activeDns={activeDns}
                             isCustomDnsActive={isCustomDnsActive}
@@ -628,6 +726,7 @@ export default function App({
                             onToggleDns={handleToggleHomeDns}
                             onFlushDns={handleFlushDns}
                             refreshStatus={refreshStatus}
+                            onOpenServers={() => setPage('servers')}
                             dnsNameLookup={dnsNameLookup}
                         />
                     </div>
@@ -636,6 +735,7 @@ export default function App({
                             i18n={i18n}
                             adapters={adapters}
                             activeAdapterName={activeAdapter?.name ?? null}
+                            activeDns={activeDns}
                             configs={configs}
                             persistConfigs={persistConfigs}
                             hiddenPresets={hiddenPresets}
@@ -661,53 +761,27 @@ export default function App({
                             onRestorePresets={restorePresets}
                         />
                     </div>
-                </div>
-            </main>
+                </main>
 
-            <nav className="dock mx-auto max-w-lg rounded-t-2xl">
-                <button
-                    className={page === 'home' ? 'dock-active' : ''}
-                    onClick={() => {
-                        setPage('home');
-                    }}
-                >
-                    <HomeIcon className="size-5" />
-                    <span className="dock-label">{t('dock.home')}</span>
-                </button>
-                <button
-                    className={page === 'servers' ? 'dock-active' : ''}
-                    onClick={() => {
-                        setPage('servers');
-                    }}
-                >
-                    <ServerStackIcon className="size-5" />
-                    <span className="dock-label">{t('dock.servers')}</span>
-                </button>
-                <button
-                    className={page === 'settings' ? 'dock-active' : ''}
-                    onClick={() => {
-                        setPage('settings');
-                    }}
-                >
-                    <Cog6ToothIcon className="size-5" />
-                    <span className="dock-label">{t('dock.settings')}</span>
-                </button>
-            </nav>
-
-            {toastMessage && (
-                <div className="pointer-events-none fixed inset-x-0 bottom-24 z-50 flex justify-center px-4">
-                    <div
-                        className={`alert pointer-events-auto shadow-lg ${toastIsError ? 'alert-error' : 'alert-success'}`}
-                    >
-                        {toastIsError ? (
-                            <ExclamationTriangleIcon className="size-4" />
-                        ) : (
-                            <CheckCircleIcon className="size-4" />
-                        )}
-                        <span className="text-sm">{toastMessage}</span>
+                {toastMessage && (
+                    <div className="pointer-events-none absolute inset-x-0 bottom-4 z-40 flex justify-center px-4">
+                        <div
+                            className={`dnss-popover pointer-events-auto flex items-center gap-2 rounded-xl px-3.5 py-2 text-[13px] font-medium ${
+                                toastIsError
+                                    ? 'border-[var(--dnss-error)]/40 text-[var(--dnss-error)]'
+                                    : 'border-[var(--dnss-accent)]/40 text-[var(--dnss-ink-1)]'
+                            }`}
+                        >
+                            {toastIsError ? (
+                                <ExclamationTriangleIcon className="size-4 shrink-0 text-[var(--dnss-error)]" />
+                            ) : (
+                                <CheckCircleIcon className="size-4 shrink-0 text-[var(--dnss-accent)]" />
+                            )}
+                            <span>{toastMessage}</span>
+                        </div>
                     </div>
-                </div>
-            )}
+                )}
+            </div>
         </div>
     );
 }

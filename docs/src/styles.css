@@ -143,9 +143,98 @@ html[lang='fa'] body,
     font-family: 'Vazirmatn', 'Space Grotesk', sans-serif !important;
 }
 
-/* Live demo isolation: preserve Roboto/Vazirmatn inside the mock window */
+/* Shared DNSS GUI design tokens for the embedded live demo */
+:root,
+[data-theme='light'] {
+    --dnss-canvas: #f4f5f7;
+    --dnss-sidebar: #eceef2;
+    --dnss-surface: #ffffff;
+    --dnss-raised: #f8f9fb;
+    --dnss-hover: rgba(15, 23, 42, 0.045);
+    --dnss-border: rgba(15, 23, 42, 0.08);
+    --dnss-border-strong: rgba(15, 23, 42, 0.14);
+    --dnss-ink-1: #111827;
+    --dnss-ink-2: #4b5563;
+    --dnss-ink-3: #6b7280;
+    --dnss-accent: #059669;
+    --dnss-accent-hover: #047857;
+    --dnss-accent-text: #047857;
+    --dnss-accent-ink: #ffffff;
+    --dnss-accent-soft: rgba(5, 150, 105, 0.1);
+    --dnss-warning: #b45309;
+    --dnss-warning-soft: rgba(217, 119, 6, 0.12);
+    --dnss-error: #dc2626;
+    --dnss-error-soft: rgba(220, 38, 38, 0.1);
+    --dnss-card-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    --dnss-popover-shadow:
+        0 10px 28px -6px rgba(15, 23, 42, 0.14),
+        0 2px 6px rgba(15, 23, 42, 0.06);
+}
+
+[data-theme='dark'] {
+    --dnss-canvas: #0f1115;
+    --dnss-sidebar: #14171d;
+    --dnss-surface: #181c24;
+    --dnss-raised: #202530;
+    --dnss-hover: rgba(255, 255, 255, 0.055);
+    --dnss-border: rgba(255, 255, 255, 0.075);
+    --dnss-border-strong: rgba(255, 255, 255, 0.14);
+    --dnss-ink-1: #f3f5f8;
+    --dnss-ink-2: #a0a8b8;
+    --dnss-ink-3: #8b94a7;
+    --dnss-accent: #34d399;
+    --dnss-accent-hover: #2bc48a;
+    --dnss-accent-text: #34d399;
+    --dnss-accent-ink: #04140d;
+    --dnss-accent-soft: rgba(52, 211, 153, 0.12);
+    --dnss-warning: #fbbf24;
+    --dnss-warning-soft: rgba(245, 158, 11, 0.14);
+    --dnss-error: #f87171;
+    --dnss-error-soft: rgba(248, 113, 113, 0.14);
+    --dnss-card-shadow: none;
+    --dnss-popover-shadow:
+        0 14px 36px -6px rgba(0, 0, 0, 0.55),
+        0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.dnss-card {
+    background-color: var(--dnss-surface);
+    border: 1px solid var(--dnss-border);
+    box-shadow: var(--dnss-card-shadow);
+}
+
+.dnss-popover {
+    background-color: var(--dnss-surface);
+    border: 1px solid var(--dnss-border-strong);
+    box-shadow: var(--dnss-popover-shadow);
+}
+
+[data-theme='dark'] .dnss-popover {
+    background-color: var(--dnss-raised);
+}
+
+.dnss-input {
+    background-color: var(--dnss-raised);
+    border: 1px solid var(--dnss-border-strong);
+    color: var(--dnss-ink-1);
+    transition:
+        border-color 0.14s ease,
+        background-color 0.14s ease;
+}
+
+.dnss-input::placeholder {
+    color: var(--dnss-ink-3);
+}
+
+.dnss-input:focus,
+.dnss-input:focus-within {
+    outline: none;
+    border-color: var(--dnss-accent);
+}
+
+/* Live demo isolation: preserve Roboto/Vazirmatn without clobbering monospace */
 #mockup-app-container,
-#mockup-app-container *:not(.dock-label) {
+#mockup-app-container *:not(.font-mono):not(code) {
     font-family:
         'Roboto',
         -apple-system,
@@ -155,9 +244,15 @@ html[lang='fa'] body,
         sans-serif !important;
 }
 
-#mockup-app-container[lang='fa'],
-#mockup-app-container[lang='fa'] * {
+html[lang='fa'] #mockup-app-container,
+html[lang='fa'] #mockup-app-container *:not(.font-mono):not(code) {
     font-family: 'Vazirmatn', 'Roboto', sans-serif !important;
+}
+
+#mockup-app-container .font-mono,
+#mockup-app-container code {
+    font-family: ui-monospace, 'Cascadia Code', Consolas, monospace !important;
+    font-variant-numeric: tabular-nums;
 }
 
 /* Interactive elements */

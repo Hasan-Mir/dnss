@@ -2,7 +2,6 @@ import { useRef, useState } from 'react';
 import {
     ArrowUturnLeftIcon,
     ComputerDesktopIcon,
-    LanguageIcon,
     MoonIcon,
     SunIcon,
 } from '@heroicons/react/24/outline';
@@ -13,17 +12,13 @@ import { LANGUAGES, type I18n, type Lang } from '../i18n';
 import type { ThemeMode } from '../theme';
 
 interface SettingsPageProps {
-    /** Translations + text direction + localized digits. */
     i18n: I18n;
     onLangChange: (lang: Lang) => void;
     theme: ThemeMode;
     onThemeChange: (mode: ThemeMode) => void;
-    /** True while ANY blocking operation runs — disables the controls. */
     busy: boolean;
-    /** True while the reset-all operation itself is running (spinner). */
     resetBusy: boolean;
     onResetAll: () => void;
-    /** Ids of built-in presets the user removed from the Servers list. */
     hiddenPresets: string[];
     onRestorePresets: () => void;
 }
@@ -42,98 +37,120 @@ export default function SettingsPage({
     onRestorePresets,
 }: SettingsPageProps) {
     const { t } = i18n;
-    // In-app confirmation instead of window.confirm, which renders as a
-    // clashing native dialog inside the webview.
     const [confirmReset, setConfirmReset] = useState(false);
     const resetButtonRef = useRef<HTMLButtonElement | null>(null);
 
     return (
         <div className="mx-auto flex w-full max-w-2xl flex-col gap-4">
-            <h2 className="m-0 text-lg font-bold">{t('settings.title')}</h2>
+            <h2 className="m-0 text-[18px] font-semibold text-[var(--dnss-ink-1)]">
+                {t('settings.title')}
+            </h2>
 
-            <div className="card border border-base-300/40 bg-base-100 shadow-sm">
-                <div className="card-body gap-3 p-4">
-                    <div className="text-xs font-semibold opacity-70">
-                        {t('settings.appearance')}
+            {/* Appearance & Language */}
+            <section className="dnss-card divide-y divide-[var(--dnss-border)] rounded-2xl">
+                <div className="flex flex-wrap items-center justify-between gap-3 p-4">
+                    <div>
+                        <div className="text-[13px] font-semibold text-[var(--dnss-ink-1)]">
+                            {t('settings.appearance')}
+                        </div>
+                        <div className="mt-0.5 text-[12px] text-[var(--dnss-ink-3)]">
+                            {t('settings.appearanceDesc')}
+                        </div>
                     </div>
-                    <div className="join">
+
+                    <div className="inline-flex items-center rounded-xl bg-[var(--dnss-raised)] p-1">
                         {(['light', 'dark', 'system'] as ThemeMode[]).map(
-                            (mode) => (
-                                <button
-                                    key={mode}
-                                    className={`btn btn-sm join-item ${
-                                        theme === mode
-                                            ? 'btn-primary'
-                                            : 'btn-ghost'
-                                    }`}
-                                    onClick={() => onThemeChange(mode)}
-                                >
-                                    {mode === 'light' ? (
-                                        <SunIcon className="size-4" />
-                                    ) : mode === 'dark' ? (
-                                        <MoonIcon className="size-4" />
-                                    ) : (
-                                        <ComputerDesktopIcon className="size-4" />
-                                    )}
-                                    {mode === 'light'
-                                        ? t('settings.light')
-                                        : mode === 'dark'
-                                          ? t('settings.dark')
-                                          : t('settings.system')}
-                                </button>
-                            )
+                            (mode) => {
+                                const active = theme === mode;
+                                return (
+                                    <button
+                                        key={mode}
+                                        type="button"
+                                        onClick={() => onThemeChange(mode)}
+                                        className={`inline-flex h-7 items-center gap-1.5 rounded-lg px-2.5 text-[12px] font-medium transition-colors ${
+                                            active
+                                                ? 'bg-[var(--dnss-surface)] text-[var(--dnss-ink-1)] shadow-xs'
+                                                : 'text-[var(--dnss-ink-2)] hover:text-[var(--dnss-ink-1)]'
+                                        }`}
+                                    >
+                                        {mode === 'light' ? (
+                                            <SunIcon className="size-4 shrink-0" />
+                                        ) : mode === 'dark' ? (
+                                            <MoonIcon className="size-4 shrink-0" />
+                                        ) : (
+                                            <ComputerDesktopIcon className="size-4 shrink-0" />
+                                        )}
+                                        <span>
+                                            {mode === 'light'
+                                                ? t('settings.light')
+                                                : mode === 'dark'
+                                                  ? t('settings.dark')
+                                                  : t('settings.system')}
+                                        </span>
+                                    </button>
+                                );
+                            }
                         )}
                     </div>
                 </div>
-            </div>
 
-            <div className="card border border-base-300/40 bg-base-100 shadow-sm">
-                <div className="card-body gap-3 p-4">
-                    <div className="text-xs font-semibold opacity-70">
-                        {t('settings.language')}
+                <div className="flex flex-wrap items-center justify-between gap-3 p-4">
+                    <div>
+                        <div className="text-[13px] font-semibold text-[var(--dnss-ink-1)]">
+                            {t('settings.language')}
+                        </div>
+                        <div className="mt-0.5 text-[12px] text-[var(--dnss-ink-3)]">
+                            {t('settings.languageHint')}
+                        </div>
                     </div>
-                    <div className="join">
-                        {LANGUAGES.map((entry) => (
-                            <button
-                                key={entry.code}
-                                className={`btn btn-sm join-item ${
-                                    i18n.lang === entry.code
-                                        ? 'btn-primary'
-                                        : 'btn-ghost'
-                                }`}
-                                onClick={() => onLangChange(entry.code)}
-                            >
-                                <LanguageIcon className="size-4" />
-                                {entry.name}
-                            </button>
-                        ))}
+
+                    <div className="inline-flex items-center rounded-xl bg-[var(--dnss-raised)] p-1">
+                        {LANGUAGES.map((entry) => {
+                            const active = i18n.lang === entry.code;
+                            return (
+                                <button
+                                    key={entry.code}
+                                    type="button"
+                                    onClick={() => onLangChange(entry.code)}
+                                    className={`inline-flex h-7 items-center rounded-lg px-3 text-[12px] font-medium transition-colors ${
+                                        active
+                                            ? 'bg-[var(--dnss-surface)] text-[var(--dnss-ink-1)] shadow-xs'
+                                            : 'text-[var(--dnss-ink-2)] hover:text-[var(--dnss-ink-1)]'
+                                    }`}
+                                >
+                                    {entry.name}
+                                </button>
+                            );
+                        })}
                     </div>
-                    <p className="m-0 text-xs leading-relaxed opacity-60">
-                        {t('settings.languageHint')}
-                    </p>
                 </div>
-            </div>
+            </section>
 
-            <div className="card border border-base-300/40 bg-base-100 shadow-sm">
-                <div className="card-body gap-2 p-4">
-                    <div className="text-xs font-semibold opacity-70">
-                        {t('settings.maintenance')}
+            {/* Maintenance */}
+            <section className="dnss-card rounded-2xl p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                        <div className="text-[13px] font-semibold text-[var(--dnss-ink-1)]">
+                            {t('settings.maintenance')}
+                        </div>
+                        <p className="mt-0.5 text-[12px] leading-relaxed text-[var(--dnss-ink-2)]">
+                            {t('settings.maintenanceDesc')}
+                        </p>
                     </div>
-                    <p className="m-0 text-xs leading-relaxed opacity-60">
-                        {t('settings.maintenanceDesc')}
-                    </p>
-                    <div className="flex justify-start">
+
+                    <div className="shrink-0">
                         <button
                             ref={resetButtonRef}
-                            className="btn btn-error btn-sm"
+                            type="button"
                             disabled={busy}
                             aria-expanded={confirmReset}
                             onClick={() => setConfirmReset(true)}
+                            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[var(--dnss-error-soft)] px-3 text-[12px] font-medium text-[var(--dnss-error)] transition-colors hover:bg-[var(--dnss-error)] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                         >
                             {resetBusy ? (
                                 <span className="loading loading-spinner loading-xs" />
                             ) : (
-                                <ArrowUturnLeftIcon className="size-4" />
+                                <ArrowUturnLeftIcon className="size-4 shrink-0" />
                             )}
                             {t('settings.resetAll')}
                         </button>
@@ -142,21 +159,23 @@ export default function SettingsPage({
                             <FloatingPanel
                                 anchor={resetButtonRef.current}
                                 onClose={() => setConfirmReset(false)}
-                                placement="top"
-                                className="w-64 rounded-xl border border-base-300/60 bg-base-100 p-3 shadow-xl"
+                                placement="bottom"
+                                className="dnss-popover w-64 rounded-xl p-3"
                             >
-                                <div className="text-sm">
+                                <div className="text-[13px] font-medium text-[var(--dnss-ink-1)]">
                                     {t('settings.resetConfirm')}
                                 </div>
-                                <div className="mt-2 flex justify-end gap-2">
+                                <div className="mt-2.5 flex justify-end gap-1.5">
                                     <button
-                                        className="btn btn-ghost btn-xs"
+                                        type="button"
+                                        className="rounded-lg px-2.5 py-1 text-[12px] text-[var(--dnss-ink-2)] hover:bg-[var(--dnss-hover)]"
                                         onClick={() => setConfirmReset(false)}
                                     >
                                         {t('common.cancel')}
                                     </button>
                                     <button
-                                        className="btn btn-error btn-xs"
+                                        type="button"
+                                        className="rounded-lg bg-[var(--dnss-error)] px-2.5 py-1 text-[12px] font-medium text-white hover:opacity-90"
                                         onClick={() => {
                                             setConfirmReset(false);
                                             onResetAll();
@@ -169,54 +188,57 @@ export default function SettingsPage({
                         )}
                     </div>
                 </div>
-            </div>
+            </section>
 
+            {/* Hidden Presets */}
             {hiddenPresets.length > 0 && (
-                <div className="card border border-base-300/40 bg-base-100 shadow-sm">
-                    <div className="card-body gap-2 p-4">
-                        <div className="text-xs font-semibold opacity-70">
-                            {t('settings.hiddenPresets')}
-                        </div>
-                        <p className="m-0 text-xs leading-relaxed opacity-60">
-                            {t('settings.hiddenPresetsDesc')}
-                        </p>
-                        <div className="flex flex-wrap gap-1.5">
-                            {hiddenPresets.map((id) => (
-                                <span
-                                    key={id}
-                                    className="badge badge-ghost badge-sm"
-                                >
-                                    {DNS_PRESETS.find((p) => p.id === id)
-                                        ?.name ?? id}
-                                </span>
-                            ))}
-                        </div>
-                        <div className="flex justify-start">
-                            <button
-                                className="btn btn-sm"
-                                onClick={onRestorePresets}
-                            >
-                                <ArrowUturnLeftIcon className="size-4" />
-                                {t('settings.restorePresets')}
-                            </button>
-                        </div>
+                <section className="dnss-card rounded-2xl p-4">
+                    <div className="text-[13px] font-semibold text-[var(--dnss-ink-1)]">
+                        {t('settings.hiddenPresets')}
                     </div>
-                </div>
+                    <p className="mt-0.5 text-[12px] leading-relaxed text-[var(--dnss-ink-2)]">
+                        {t('settings.hiddenPresetsDesc')}
+                    </p>
+                    <div className="mt-2.5 flex flex-wrap gap-1.5">
+                        {hiddenPresets.map((id) => (
+                            <span
+                                key={id}
+                                className="rounded-md bg-[var(--dnss-raised)] px-2 py-0.5 text-[12px] text-[var(--dnss-ink-2)]"
+                            >
+                                {DNS_PRESETS.find((p) => p.id === id)?.name ??
+                                    id}
+                            </span>
+                        ))}
+                    </div>
+                    <div className="mt-3">
+                        <button
+                            type="button"
+                            onClick={onRestorePresets}
+                            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[var(--dnss-raised)] px-3 text-[12px] font-medium text-[var(--dnss-ink-1)] transition-colors hover:bg-[var(--dnss-hover)]"
+                        >
+                            <ArrowUturnLeftIcon className="size-4 shrink-0" />
+                            {t('settings.restorePresets')}
+                        </button>
+                    </div>
+                </section>
             )}
 
-            <div className="card border border-base-300/40 bg-base-100 shadow-sm">
-                <div className="card-body gap-2 p-4">
-                    <div className="text-xs font-semibold opacity-70">
+            {/* About & Privacy */}
+            <section className="dnss-card divide-y divide-[var(--dnss-border)] rounded-2xl">
+                <div className="p-4">
+                    <div className="text-[13px] font-semibold text-[var(--dnss-ink-1)]">
                         {t('settings.about')}
                     </div>
-                    <p className="m-0 text-sm leading-relaxed">
-                        <strong>DNSS</strong>
+                    <p className="mt-1 text-[13px] leading-relaxed text-[var(--dnss-ink-2)]">
+                        <strong className="font-semibold text-[var(--dnss-ink-1)]">
+                            DNSS
+                        </strong>
                         {t('settings.aboutSuffix')}
                     </p>
-                    <p className="m-0 text-xs leading-relaxed opacity-60">
+                    <p className="mt-1.5 text-[12px] leading-relaxed text-[var(--dnss-ink-3)]">
                         {t('settings.inspirationBefore')}
                         <a
-                            className="link link-primary"
+                            className="font-medium text-[var(--dnss-accent)] hover:underline"
                             href={INSPIRATION_URL}
                             onClick={(e) => {
                                 e.preventDefault();
@@ -228,18 +250,16 @@ export default function SettingsPage({
                         {t('settings.inspirationAfter')}
                     </p>
                 </div>
-            </div>
 
-            <div className="card border border-base-300/40 bg-base-100 shadow-sm">
-                <div className="card-body gap-2 p-4">
-                    <div className="text-xs font-semibold opacity-70">
+                <div className="p-4">
+                    <div className="text-[13px] font-semibold text-[var(--dnss-ink-1)]">
                         {t('settings.privacy')}
                     </div>
-                    <p className="m-0 text-xs leading-relaxed opacity-60">
+                    <p className="mt-1 text-[12px] leading-relaxed text-[var(--dnss-ink-2)]">
                         {t('settings.privacyBody')}
                     </p>
                 </div>
-            </div>
+            </section>
         </div>
     );
 }
