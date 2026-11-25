@@ -388,6 +388,13 @@ async fn get_tray_pinned(app: tauri::AppHandle) -> Result<bool, String> {
 }
 
 #[tauri::command]
+fn notify_tray_drag_start(app: tauri::AppHandle) {
+    if let Ok(mut state) = app.state::<TrayState>().0.lock() {
+        state.drag_grace_until = Some(Instant::now() + TRAY_DRAG_START_GRACE);
+    }
+}
+
+#[tauri::command]
 async fn window_start_dragging(app: tauri::AppHandle, label: Option<String>) -> Result<(), String> {
     let target = match label.as_deref() {
         Some("tray") => "tray",
@@ -617,7 +624,8 @@ pub fn run() {
             window_close,
             window_start_dragging,
             set_tray_pinned,
-            get_tray_pinned
+            get_tray_pinned,
+            notify_tray_drag_start
         ])
         .run(tauri::generate_context!())
         .expect("error while running dnss");

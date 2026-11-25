@@ -811,26 +811,32 @@ export default function TrayApp() {
         <div className="flex h-screen w-screen select-none flex-col overflow-hidden border border-[var(--dnss-border-strong)] bg-[var(--dnss-canvas)] text-[var(--dnss-ink-1)]">
             {/* Compact Header */}
             <header
-                onMouseDown={(e) => {
+                data-tauri-drag-region
+                onMouseDownCapture={(e) => {
                     if (e.button !== 0) return;
                     if ((e.target as HTMLElement).closest('button')) return;
-                    void api
-                        .windowStartDragging('tray')
-                        .catch((err) => showToast(String(err), 'error'));
+                    void api.notifyTrayDragStart().catch(() => {});
                 }}
                 className="flex h-11 shrink-0 cursor-grab items-center justify-between gap-2 border-b border-[var(--dnss-border)] bg-[var(--dnss-sidebar)] px-3 active:cursor-grabbing"
             >
-                <div className="flex min-w-0 items-center gap-2">
+                <div
+                    data-tauri-drag-region
+                    className="flex min-w-0 flex-1 items-center gap-2"
+                >
                     <img
                         src={appIcon}
                         alt="DNSS"
-                        className="size-5 shrink-0"
+                        className="pointer-events-none size-5 shrink-0"
                         draggable={false}
                     />
-                    <span className="text-[length:var(--dnss-fs-sm)] font-bold text-[var(--dnss-ink-1)]">
+                    <span
+                        data-tauri-drag-region
+                        className="text-[length:var(--dnss-fs-sm)] font-bold text-[var(--dnss-ink-1)]"
+                    >
                         DNSS
                     </span>
                     <span
+                        data-tauri-drag-region
                         className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[length:var(--dnss-fs-2xs)] font-medium ${
                             isCustomDnsActive
                                 ? 'bg-[var(--dnss-accent-soft)] text-[var(--dnss-accent-text)]'

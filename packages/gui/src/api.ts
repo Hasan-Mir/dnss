@@ -149,4 +149,6 @@ export const api = {
         invokeCommand<boolean>('set_tray_pinned', { pinned }),
     getTrayPinned: (): Promise<boolean> =>
         invokeCommand<boolean>('get_tray_pinned'),
+    notifyTrayDragStart: (): Promise<void> =>
+        invokeCommand<void>('notify_tray_drag_start'),
 };

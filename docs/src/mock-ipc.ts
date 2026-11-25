@@ -185,6 +185,7 @@ export function installMockTauriIpc(): void {
             case 'plugin:window|hide':
             case 'window_minimize':
             case 'window_close':
+            case 'notify_tray_drag_start':
             case 'window_start_dragging':
             case 'plugin:window|start_dragging': {
                 return null;
