@@ -135,4 +135,18 @@ export const api = {
 
     /** Quit the entire DNSS desktop application. */
     quitApp: (): Promise<void> => invokeCommand<void>('quit_app'),
+
+    /** Custom frameless window controls handled directly by Rust backend. */
+    windowMinimize: (): Promise<void> => invokeCommand<void>('window_minimize'),
+    windowToggleMaximize: (): Promise<boolean> =>
+        invokeCommand<boolean>('window_toggle_maximize'),
+    windowIsMaximized: (): Promise<boolean> =>
+        invokeCommand<boolean>('window_is_maximized'),
+    windowClose: (): Promise<void> => invokeCommand<void>('window_close'),
+    windowStartDragging: (label?: 'main' | 'tray'): Promise<void> =>
+        invokeCommand<void>('window_start_dragging', { label: label ?? null }),
+    setTrayPinned: (pinned: boolean): Promise<boolean> =>
+        invokeCommand<boolean>('set_tray_pinned', { pinned }),
+    getTrayPinned: (): Promise<boolean> =>
+        invokeCommand<boolean>('get_tray_pinned'),
 };

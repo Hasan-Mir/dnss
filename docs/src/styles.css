@@ -151,6 +151,7 @@ html[lang='fa'] body,
     --dnss-surface: #ffffff;
     --dnss-raised: #f8f9fb;
     --dnss-nav-active: #ffffff;
+    --dnss-switch-knob: #ffffff;
     --dnss-accent-glow: rgba(5, 150, 105, 0.22);
     --dnss-press-shadow: inset 0 2px 4px rgba(15, 23, 42, 0.14);
     --dnss-text-scale: 1;
@@ -187,6 +188,7 @@ html[lang='fa'] body,
     --dnss-surface: #181c24;
     --dnss-raised: #202530;
     --dnss-nav-active: #232a38;
+    --dnss-switch-knob: #0d1117;
     --dnss-accent-glow: rgba(52, 211, 153, 0.34);
     --dnss-press-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.28);
     --dnss-hover: rgba(255, 255, 255, 0.055);
@@ -521,4 +523,8 @@ a,
     background: #ffffff;
     border: 2px solid var(--dnss-canvas);
     box-shadow: 0 1px 5px rgba(0, 0, 0, 0.45);
+}
+
+.dnss-scroll-stable {
+    scrollbar-gutter: stable;
 }

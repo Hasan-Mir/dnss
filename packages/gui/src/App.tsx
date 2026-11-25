@@ -647,11 +647,12 @@ export default function App({
         <div className="@container flex h-full w-full flex-col overflow-hidden bg-[var(--dnss-canvas)] text-[var(--dnss-ink-1)]">
             {!isEmbeddedDemo && (
                 <TitleBar
-                    title={t('window.title')}
+                    title="DNSS - DNS Switcher"
                     minimizeLabel={t('window.minimize')}
                     maximizeLabel={t('window.maximize')}
                     restoreLabel={t('window.restore')}
                     closeLabel={t('window.close')}
+                    onError={(msg) => showToast(msg, 'error')}
                 />
             )}
 
@@ -775,7 +776,7 @@ export default function App({
                         />
                     )}
 
-                    <main className="min-h-0 flex-1 overflow-y-auto px-6 py-5 @max-[680px]:px-3.5 @max-[680px]:py-3.5">
+                    <main className="dnss-scroll-stable min-h-0 flex-1 overflow-y-auto px-6 py-5 @max-[680px]:px-3.5 @max-[680px]:py-3.5">
                         <div
                             hidden={page !== 'home'}
                             className={page === 'home' ? 'page-fade' : ''}

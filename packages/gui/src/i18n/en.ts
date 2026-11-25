@@ -7,7 +7,6 @@
  */
 const en = {
     // Window chrome
-    'window.title': 'DNSS - DNS Switcher',
     'window.minimize': 'Minimize',
     'window.maximize': 'Maximize',
     'window.restore': 'Restore',
@@ -167,6 +166,7 @@ const en = {
         'These built-in presets are currently hidden from the Servers list:',
     'settings.restorePresets': 'Restore presets',
     'settings.about': 'About',
+    'settings.repoLabel': 'Repository',
     'settings.aboutSuffix':
         ' (DNS Switcher) — switch DNS resolvers in one click. Free and open source, MIT licensed.',
     'settings.inspirationBefore':
@@ -177,12 +177,16 @@ const en = {
         'DNSS runs offline. No telemetry, no analytics, and no network requests other than DNS benchmarks you trigger.',
 
     // System Tray Popover
+    'tray.pin': 'Pin window (stay open when clicking outside)',
+    'tray.unpin': 'Unpin window (auto-hide when clicking outside)',
     'tray.openApp': 'Open full app',
     'tray.quit': 'Quit DNSS',
     'tray.protected': 'Protected',
     'tray.dhcp': 'DHCP',
     'tray.targetActive': 'Active ({name})',
     'tray.targetAll': 'All adapters ({count})',
+    'tray.targetTooltip':
+        'Target network adapter(s) updated when you click Apply',
     'tray.addCustom': 'Custom',
     'tray.benchmark': 'Benchmark all',
     'tray.benchmarking': 'Benchmarking…',

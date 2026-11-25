@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { getCurrentWindow } from '@tauri-apps/api/window';
+import { api } from '../api';
 import appIcon from '../assets/app-icon.png';
 
 interface TitleBarProps {
@@ -8,79 +8,75 @@ interface TitleBarProps {
     maximizeLabel: string;
     restoreLabel: string;
     closeLabel: string;
+    onError?: (message: string) => void;
 }
 
-/** Custom frameless desktop window title bar with drag region and
-    Windows-style minimize, maximize/restore, and close controls. */
+/** Custom frameless desktop window title bar.
+    Uses Tauri's native `data-tauri-drag-region` for zero-lag Win32 window
+    dragging and double-click maximize, paired with async Rust commands for
+    minimize / maximize / close. Always stays LTR with a fixed brand title. */
 export default function TitleBar({
     title,
     minimizeLabel,
     maximizeLabel,
     restoreLabel,
     closeLabel,
+    onError,
 }: TitleBarProps) {
     const [maximized, setMaximized] = useState(false);
 
+    const reportError = useCallback(
+        (action: string, err: unknown) => {
+            const msg = `${action}: ${String(err)}`;
+            console.error('[TitleBar]', msg);
+            onError?.(msg);
+        },
+        [onError]
+    );
+
     useEffect(() => {
-        const win = getCurrentWindow();
         let disposed = false;
-        let unlisten: (() => void) | null = null;
+        const syncMaximized = () => {
+            void api
+                .windowIsMaximized()
+                .then((val) => {
+                    if (!disposed) setMaximized(val);
+                })
+                .catch(() => {});
+        };
 
-        void win
-            .isMaximized()
-            .then((val) => {
-                if (!disposed) setMaximized(val);
-            })
-            .catch(() => {});
-
-        void win
-            .onResized(() => {
-                void win
-                    .isMaximized()
-                    .then((val) => {
-                        if (!disposed) setMaximized(val);
-                    })
-                    .catch(() => {});
-            })
-            .then((fn) => {
-                if (disposed) fn();
-                else unlisten = fn;
-            })
-            .catch(() => {});
-
+        syncMaximized();
+        window.addEventListener('resize', syncMaximized);
         return () => {
             disposed = true;
-            unlisten?.();
+            window.removeEventListener('resize', syncMaximized);
         };
     }, []);
 
     const handleMinimize = useCallback(() => {
-        void getCurrentWindow()
-            .minimize()
-            .catch(() => {});
-    }, []);
+        void api
+            .windowMinimize()
+            .catch((err) => reportError('Minimize failed', err));
+    }, [reportError]);
 
     const handleToggleMaximize = useCallback(() => {
-        void getCurrentWindow()
-            .toggleMaximize()
-            .then(() => getCurrentWindow().isMaximized())
+        void api
+            .windowToggleMaximize()
             .then((val) => setMaximized(val))
-            .catch(() => {});
-    }, []);
+            .catch((err) => reportError('Maximize failed', err));
+    }, [reportError]);
 
     const handleClose = useCallback(() => {
-        // lib.rs intercepts CloseRequested on "main" and hides to system tray.
-        void getCurrentWindow()
-            .close()
-            .catch(() => {});
-    }, []);
+        void api.windowClose().catch((err) => reportError('Close failed', err));
+    }, [reportError]);
 
     return (
         <header
+            dir="ltr"
             data-tauri-drag-region
-            className="flex h-9 w-full shrink-0 select-none items-center justify-between border-b border-[var(--dnss-border)] bg-[var(--dnss-sidebar)] ps-3 pe-1.5"
+            className="flex h-9 w-full shrink-0 select-none items-center justify-between border-b border-[var(--dnss-border)] bg-[var(--dnss-sidebar)] pl-3 pr-1.5"
         >
-            {/* Left: App Icon + Window Title (draggable) */}
+            {/* Left: App Icon + Fixed Brand Title (native zero-lag drag region) */}
             <div
                 data-tauri-drag-region
                 className="flex min-w-0 flex-1 items-center gap-2"
@@ -99,8 +95,8 @@ export default function TitleBar({
                 </span>
             </div>
 
-            {/* Right: Custom Window Controls (always LTR order: min, max, close) */}
-            <div dir="ltr" className="flex shrink-0 items-center gap-0.5">
+            {/* Right: Custom Window Controls (always right-aligned: min, max, close) */}
+            <div className="flex shrink-0 items-center gap-0.5">
                 <button
                     type="button"
                     aria-label={minimizeLabel}

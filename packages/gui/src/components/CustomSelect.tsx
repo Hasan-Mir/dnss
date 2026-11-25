@@ -149,7 +149,7 @@ export default function CustomSelect<T extends string = string>({
                                     {option.label}
                                 </span>
                                 {option.badge && (
-                                    <span className="shrink-0 rounded bg-[var(--dnss-raised)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--dnss-ink-3)]">
+                                    <span className="shrink-0 rounded-md border border-[var(--dnss-accent)]/30 bg-[var(--dnss-accent-soft)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--dnss-accent-text)]">
                                         {option.badge}
                                     </span>
                                 )}

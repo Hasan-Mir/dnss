@@ -24,6 +24,11 @@ export default defineConfig({
         host: '127.0.0.1',
         port: 1420,
         strictPort: true,
+        hmr: {
+            protocol: 'ws',
+            host: '127.0.0.1',
+            port: 1420,
+        },
         watch: {
             // The Rust shell lives inside the vite root (packages/gui), so
             // chokidar would otherwise watch src-tauri/target too. Cargo's

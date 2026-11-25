@@ -239,7 +239,7 @@ export function loadFontFamily(): FontFamilyId {
     if (FONT_OPTIONS.some((f) => f.id === stored)) {
         return stored as FontFamilyId;
     }
-    return 'inter';
+    return 'google-sans';
 }
 
 export function saveFontFamily(font: FontFamilyId): void {

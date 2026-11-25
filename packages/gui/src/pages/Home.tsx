@@ -269,7 +269,7 @@ export default function HomePage({
                         }`}
                     >
                         <span
-                            className={`grid size-7 place-items-center rounded-full bg-[#0d1117] shadow-sm transition-transform duration-200 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${
+                            className={`grid size-7 place-items-center rounded-full bg-[var(--dnss-switch-knob)] shadow-sm transition-transform duration-200 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${
                                 isCustomDnsActive
                                     ? dir === 'rtl'
                                         ? '-translate-x-7'

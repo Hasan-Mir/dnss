@@ -42,6 +42,7 @@ interface SettingsPageProps {
     onRestorePresets: () => void;
 }
 
+const REPO_URL = 'https://github.com/Hasan-Mir/dnss';
 const INSPIRATION_URL = 'https://github.com/DnsChanger/dnsChanger-desktop';
 
 export default function SettingsPage({
@@ -480,6 +481,20 @@ export default function SettingsPage({
                             DNSS
                         </strong>
                         {t('settings.aboutSuffix')}
+                    </p>
+                    <p className="mt-1.5 text-[length:var(--dnss-fs-xs)] leading-relaxed text-[var(--dnss-ink-2)]">
+                        {t('settings.repoLabel')}:{' '}
+                        <a
+                            dir="ltr"
+                            className="font-medium text-[var(--dnss-accent-text)] hover:underline"
+                            href={REPO_URL}
+                            onClick={(e) => {
+                                e.preventDefault();
+                                void openExternal(REPO_URL);
+                            }}
+                        >
+                            github.com/Hasan-Mir/dnss
+                        </a>
                     </p>
                     <p className="mt-1.5 text-[length:var(--dnss-fs-xs)] leading-relaxed text-[var(--dnss-ink-3)]">
                         {t('settings.inspirationBefore')}

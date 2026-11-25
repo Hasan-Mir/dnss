@@ -171,6 +171,10 @@ export function installMockTauriIpc(): void {
                 return null;
             }
 
+            case 'set_tray_pinned':
+            case 'get_tray_pinned':
+            case 'window_is_maximized':
+            case 'window_toggle_maximize':
             case 'plugin:window|is_maximized': {
                 return false;
             }
@@ -179,6 +183,9 @@ export function installMockTauriIpc(): void {
             case 'plugin:window|toggle_maximize':
             case 'plugin:window|close':
             case 'plugin:window|hide':
+            case 'window_minimize':
+            case 'window_close':
+            case 'window_start_dragging':
             case 'plugin:window|start_dragging': {
                 return null;
             }

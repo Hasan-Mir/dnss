@@ -51,6 +51,7 @@
     --dnss-surface: #ffffff;
     --dnss-raised: #f8f9fb;
     --dnss-nav-active: #ffffff;
+    --dnss-switch-knob: #ffffff;
     --dnss-hover: rgba(15, 23, 42, 0.05);
     --dnss-border: rgba(15, 23, 42, 0.08);
     --dnss-border-strong: rgba(15, 23, 42, 0.14);
@@ -73,7 +74,8 @@
         0 2px 6px rgba(15, 23, 42, 0.06);
     --dnss-press-shadow: inset 0 2px 4px rgba(15, 23, 42, 0.14);
     --dnss-font-sans:
-        'Inter', 'Vazirmatn', 'Segoe UI', system-ui, -apple-system, sans-serif;
+        'Google Sans', 'Plus Jakarta Sans', 'Vazirmatn', 'Segoe UI', system-ui,
+        -apple-system, sans-serif;
     --dnss-text-scale: 1;
     --dnss-fs-2xs: calc(11px * var(--dnss-text-scale, 1));
     --dnss-fs-xs: calc(12px * var(--dnss-text-scale, 1));
@@ -89,6 +91,7 @@
     --dnss-surface: #181c24;
     --dnss-raised: #202530;
     --dnss-nav-active: #232a38;
+    --dnss-switch-knob: #0d1117;
     --dnss-hover: rgba(255, 255, 255, 0.06);
     --dnss-border: rgba(255, 255, 255, 0.075);
     --dnss-border-strong: rgba(255, 255, 255, 0.14);
@@ -113,7 +116,8 @@
 
 @theme {
     --font-sans:
-        'Inter', 'Vazirmatn', 'Segoe UI', system-ui, -apple-system, sans-serif;
+        'Google Sans', 'Plus Jakarta Sans', 'Vazirmatn', 'Segoe UI', system-ui,
+        -apple-system, sans-serif;
     --font-mono: ui-monospace, 'Cascadia Code', Consolas, monospace;
 }
 
@@ -447,4 +451,8 @@ button:not(:disabled):not([role='switch']):not(.dnss-no-press):active {
     .loading-bar::before {
         animation: none;
     }
+}
+
+.dnss-scroll-stable {
+    scrollbar-gutter: stable;
 }

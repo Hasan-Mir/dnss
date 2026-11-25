@@ -8,7 +8,6 @@ import type { Dict } from './en';
 
 const fa: Dict = {
     // Window chrome
-    'window.title': 'DNSS - تغییر DNS',
     'window.minimize': 'کوچک کردن',
     'window.maximize': 'بزرگ کردن',
     'window.restore': 'بازگرداندن اندازه',
@@ -102,7 +101,7 @@ const fa: Dict = {
     'servers.sortPing': 'تأخیر',
     'servers.benchmark': 'بنچمارک همه',
     'servers.benchmarking': 'در حال بنچمارک…',
-    'servers.benchTarget': 'هدف بنچمارک',
+    'servers.benchTarget': 'دامنهٔ تست',
     'servers.benchTargetHint':
         'دامنه‌ای که هنگام سنجش تأخیر بررسی می‌شود (مشترک با CLI).',
     'servers.vpnFakeIpWarning':
@@ -171,6 +170,7 @@ const fa: Dict = {
         'این سرورهای آماده از فهرست سرورها پنهان شده‌اند:',
     'settings.restorePresets': 'بازگردانی سرورها',
     'settings.about': 'درباره',
+    'settings.repoLabel': 'مخزن گیت‌هاب',
     'settings.aboutSuffix':
         ' (تغییر DNS) — تغییر سرورهای DNS با یک کلیک. رایگان و متن‌باز با مجوز MIT.',
     'settings.inspirationBefore':
@@ -181,12 +181,16 @@ const fa: Dict = {
         'DNSS کاملاً آفلاین اجرا می‌شود؛ هیچ تله‌متری یا تحلیل آماری وجود ندارد و به‌جز بنچمارک‌هایی که خودتان اجرا می‌کنید، درخواست شبکه‌ای ارسال نمی‌شود.',
 
     // System Tray Popover
+    'tray.pin': 'سنجاق کردن پنجره (با کلیک بیرون بسته نشود)',
+    'tray.unpin': 'برداشتن سنجاق (با کلیک بیرون بسته شود)',
     'tray.openApp': 'باز کردن برنامهٔ کامل',
     'tray.quit': 'خروج از DNSS',
     'tray.protected': 'محافظت‌شده',
     'tray.dhcp': 'DHCP',
     'tray.targetActive': 'فعال ({name})',
     'tray.targetAll': 'همهٔ آداپتورها ({count})',
+    'tray.targetTooltip':
+        'آداپتور یا آداپتورهای شبکه‌ای که با زدن «اعمال»، DNS روی آن‌ها تنظیم می‌شود',
     'tray.addCustom': 'سفارشی',
     'tray.benchmark': 'بنچمارک همه',
     'tray.benchmarking': 'در حال بنچمارک…',

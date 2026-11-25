@@ -136,3 +136,38 @@ Whenever implementing, applying, or adapting directives, patches, or code review
     - Create `docs/reviews/round-XX-YYYY-MM-DD.md` using `docs/reviews/TEMPLATE.md`, documenting the exact applied fixes, divergences/rejected items, pre-apply check outcomes, regression tests, and verification results.
     - Update `docs/reviews/INDEX.md` with the new round entry, any new **Intentional Decisions / Do-Not-Reopen** items, and updated **Pending Manual Verification** items.
     - Because `docs/reviews/` is automatically included by `scripts/bundle-context.ts`, this gives future external AI reviewers full continuity across rounds.
+
+---
+
+## 🛡️ 6. Critical Tauri v2, Vite & Windows Invariants (Do Not Break)
+
+The following invariants were discovered and verified through live Windows debugging. **Do not revert, simplify, or bypass them:**
+
+1. **Vite IPv4 Binding & Tauri `devUrl` (`packages/gui/vite.config.mts`, `packages/gui/src-tauri/tauri.conf.json`)**:
+    - On Windows, Node.js resolves `localhost` to IPv6 `::1` first, while `tauri dev` polls IPv4 `127.0.0.1:1420` (`Warn Waiting for your frontend dev server...`).
+    - **Invariant**: Keep `server.host: '127.0.0.1'`, `port: 1420`, `strictPort: true`, `hmr: { protocol: 'ws', host: '127.0.0.1', port: 1420 }` in `vite.config.mts` AND `"devUrl": "http://127.0.0.1:1420"` in `tauri.conf.json`.
+
+2. **Dev vs. Production CSP (`packages/gui/src-tauri/tauri.conf.json`)**:
+    - The production `"csp"` (`script-src 'self'`, `connect-src ipc: http://ipc.localhost`) blocks Vite's HMR WebSocket and React Fast Refresh inline preamble scripts during `tauri:dev`.
+    - **Invariant**: Keep `"devCsp": null` in `app.security` so HMR works seamlessly in development while release builds continue enforcing the strict production `"csp"`. Never bundle external CDN fonts (`font-src 'self' data:`); always use self-hosted `@fontsource/*` imports in `packages/gui/src/main.tsx`.
+
+3. **Custom TitleBar & Window Commands (`packages/gui/src-tauri/src/lib.rs`, `packages/gui/src/components/TitleBar.tsx`)**:
+    - Synchronous (`fn`) Tauri commands calling `window.minimize()`, `maximize()`, `hide()`, or `start_dragging()` inside WebView2's IPC callback deadlock or silently no-op on Windows.
+    - **Invariant**: All window manipulation commands (`window_minimize`, `window_toggle_maximize`, `window_is_maximized`, `window_close`, `window_start_dragging`, `set_tray_pinned`) MUST remain **`async fn`** taking `app: tauri::AppHandle` and returning `Result<..., String>`.
+    - **Invariant**: `<TitleBar />` MUST stay `dir="ltr"` with fixed title `"DNSS - DNS Switcher"` so switching UI language to Persian (`fa`) never flips window buttons or translates the brand title.
+
+4. **System Tray Drag, Pin & Close Lifecycle (`packages/gui/src-tauri/src/lib.rs`, `packages/gui/src/TrayApp.tsx`)**:
+    - On Windows, calling `tray.start_dragging()` immediately triggers `WM_KILLFOCUS` (`WindowEvent::Focused(false)`) when the Win32 modal move loop begins.
+    - **Invariant**: `WindowEvent::Focused(false)` on `"tray"` MUST check `TrayState` (`state.pinned`, `state.dragging`, and `TRAY_DRAG_BLUR_GRACE`) before calling `window.hide()`.
+    - **Invariant**: `WindowEvent::CloseRequested` MUST guard **both** `"main"` and `"tray"` (`matches!(window.label(), "main" | "tray")`) so pressing `Alt+F4` on the tray popover hides it instead of permanently destroying `"tray"`.
+
+5. **Production-Only Browser Lockdown (`packages/gui/src/main.tsx`)**:
+    - Native WebView2 context menu and browser shortcuts (`Ctrl+P/F/S/U/O/J/H`, zoom, `Alt+Left/Right`) are blocked using physical `e.code` (so they stay blocked under Persian `FA` keyboard layouts).
+    - **Invariant**: Keep `Ctrl+R`, `F5`, `F12`, and `Ctrl+Shift+I` enabled when `import.meta.env.DEV` is true so developers can reload/inspect during `tauri:dev`, while blocking them in production builds.
+
+6. **DNS Benchmark Reliability & Smooth UI (`packages/gui/src-tauri/src/net.rs`, `Servers.tsx`, `TrayApp.tsx`)**:
+    - Active VPN/TUN adapters (e.g. `singbox_tun`) often intercept UDP/53 with FakeIP (`198.18.0.0/15`) or local TCP `SYN-ACK`. Keep the 1232-byte UDP buffer, preserved OS `io::Error` kinds, explicit FakeIP detection, empty `benchmarkTarget` normalization, and VPN diagnostic warnings.
+    - Keep deferred latency sorting (`sortPings` updated once after benchmark completion) so `@formkit/auto-animate` performs a single smooth sort rather than jittering rows mid-benchmark, and keep `.dnss-scroll-stable` (`scrollbar-gutter: stable`) on scrollable lists to prevent horizontal layout shift during filtering.
+
+7. **Docs Live Demo Isolation (`docs/src/LandingPage.tsx`, `docs/src/styles.css`, `docs/src/mock-ipc.ts`)**:
+    - Whenever adding new Tauri commands or GUI CSS tokens, always add matching stubs in `docs/src/mock-ipc.ts` and tokens in `docs/src/styles.css`. Never override `#mockup-app-container *` with `!important` `font-family` (it breaks the Settings font-family preview).

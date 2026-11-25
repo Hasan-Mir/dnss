@@ -121,8 +121,24 @@ export default function TrayApp() {
     const [targetMode, setTargetMode] = useState<string>('__active__');
     const [search, setSearch] = useState('');
     const [pings, setPings] = useState<Record<string, PingState>>({});
+    const [sortPings, setSortPings] = useState<Record<string, PingState>>({});
     const [benchmarking, setBenchmarking] = useState(false);
     const [sortByLatency, setSortByLatency] = useState(false);
+    const [pinned, setPinned] = useState(false);
+
+    useEffect(() => {
+        if (!isDesktopApp()) return;
+        let disposed = false;
+        void api
+            .getTrayPinned()
+            .then((val) => {
+                if (!disposed) setPinned(val);
+            })
+            .catch(() => {});
+        return () => {
+            disposed = true;
+        };
+    }, []);
 
     // Inline "+ Custom" server drawer inside the tray popover
     const [customOpen, setCustomOpen] = useState(false);
@@ -190,13 +206,13 @@ export default function TrayApp() {
                 setCustomOpen(false);
                 return;
             }
-            if (isDesktopApp()) {
+            if (!pinned && isDesktopApp()) {
                 void api.hideTrayWindow();
             }
         };
         window.addEventListener('keydown', onKey);
         return () => window.removeEventListener('keydown', onKey);
-    }, [customOpen]);
+    }, [customOpen, pinned]);
 
     const showToast = useCallback(
         (message: string, kind: 'success' | 'error' = 'success') => {
@@ -211,6 +227,18 @@ export default function TrayApp() {
         },
         []
     );
+
+    const togglePin = useCallback(() => {
+        const next = !pinned;
+        if (!isDesktopApp()) {
+            setPinned(next);
+            return;
+        }
+        void api
+            .setTrayPinned(next)
+            .then((confirmed) => setPinned(confirmed))
+            .catch((err) => showToast(String(err), 'error'));
+    }, [pinned, showToast]);
 
     useEffect(() => {
         return () => {
@@ -561,8 +589,8 @@ export default function TrayApp() {
     const entries: TrayEntry[] = useMemo(() => {
         if (!sortByLatency) return baseEntries;
         return [...baseEntries].sort((a, b) => {
-            const pa = pings[a.key];
-            const pb = pings[b.key];
+            const pa = sortPings[a.key];
+            const pb = sortPings[b.key];
             const la =
                 pa?.status === 'ok'
                     ? (pa.latencyMs ?? Number.MAX_SAFE_INTEGER)
@@ -573,7 +601,7 @@ export default function TrayApp() {
                     : Number.MAX_SAFE_INTEGER;
             return la - lb;
         });
-    }, [baseEntries, pings, sortByLatency]);
+    }, [baseEntries, sortPings, sortByLatency]);
 
     // Run full benchmark right inside the tray popover!
     const runTrayBenchmark = useCallback(async () => {
@@ -582,7 +610,6 @@ export default function TrayApp() {
         const target = getBenchmarkTarget();
 
         setBenchmarking(true);
-        setSortByLatency(true);
         setPings((prev) => ({
             ...prev,
             ...Object.fromEntries(
@@ -591,6 +618,7 @@ export default function TrayApp() {
         }));
 
         const results: PingState[] = [];
+        const batchStates: Record<string, PingState> = {};
         try {
             const concurrency = Math.min(4, baseEntries.length);
             const queue = [...baseEntries];
@@ -630,6 +658,7 @@ export default function TrayApp() {
                         };
                     }
                     results.push(state);
+                    batchStates[current.key] = state;
                     if (benchRunIdRef.current === myRunId) {
                         setPings((prev) => ({ ...prev, [current.key]: state }));
                     }
@@ -641,6 +670,9 @@ export default function TrayApp() {
             );
 
             if (benchRunIdRef.current !== myRunId) return;
+
+            setSortPings((prev) => ({ ...prev, ...batchStates }));
+            setSortByLatency(true);
 
             const fakeIpHit = results.find(
                 (r) =>
@@ -778,7 +810,16 @@ export default function TrayApp() {
     return (
         <div className="flex h-screen w-screen select-none flex-col overflow-hidden border border-[var(--dnss-border-strong)] bg-[var(--dnss-canvas)] text-[var(--dnss-ink-1)]">
             {/* Compact Header */}
-            <header className="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-[var(--dnss-border)] bg-[var(--dnss-sidebar)] px-3">
+            <header
+                onMouseDown={(e) => {
+                    if (e.button !== 0) return;
+                    if ((e.target as HTMLElement).closest('button')) return;
+                    void api
+                        .windowStartDragging('tray')
+                        .catch((err) => showToast(String(err), 'error'));
+                }}
+                className="flex h-11 shrink-0 cursor-grab items-center justify-between gap-2 border-b border-[var(--dnss-border)] bg-[var(--dnss-sidebar)] px-3 active:cursor-grabbing"
+            >
                 <div className="flex min-w-0 items-center gap-2">
                     <img
                         src={appIcon}
@@ -810,6 +851,33 @@ export default function TrayApp() {
                 </div>
 
                 <div className="flex shrink-0 items-center gap-1">
+                    <button
+                        type="button"
+                        aria-pressed={pinned}
+                        title={pinned ? t('tray.unpin') : t('tray.pin')}
+                        onClick={togglePin}
+                        className={`grid size-7 shrink-0 place-items-center rounded-lg transition-colors ${
+                            pinned
+                                ? 'bg-[var(--dnss-accent-soft)] text-[var(--dnss-accent-text)]'
+                                : 'text-[var(--dnss-ink-2)] hover:bg-[var(--dnss-hover)] hover:text-[var(--dnss-ink-1)]'
+                        }`}
+                    >
+                        <svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 24 24"
+                            fill={pinned ? 'currentColor' : 'none'}
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            className={`transition-transform duration-150 ${pinned ? '-rotate-45' : ''}`}
+                            aria-hidden="true"
+                        >
+                            <path d="M12 17v5" />
+                            <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />
+                        </svg>
+                    </button>
                     <button
                         type="button"
                         title={t('tray.openApp')}
@@ -909,6 +977,7 @@ export default function TrayApp() {
                         options={adapterOptions}
                         onChange={setTargetMode}
                         ariaLabel={t('servers.applyTo')}
+                        title={t('tray.targetTooltip')}
                         size="sm"
                         className="min-w-0 flex-1"
                         panelClassName="max-h-48"
@@ -1053,7 +1122,7 @@ export default function TrayApp() {
             </div>
 
             {/* Scrollable Server List with AutoAnimate */}
-            <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-2">
+            <div className="dnss-scroll-stable min-h-0 flex-1 overflow-y-auto px-3 pb-2">
                 <div className="dnss-card overflow-hidden rounded-xl">
                     {entries.length > 0 ? (
                         <ul

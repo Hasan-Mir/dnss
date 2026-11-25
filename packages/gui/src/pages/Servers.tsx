@@ -343,6 +343,7 @@ export default function ServersPage({
     });
 
     const [pings, setPings] = useState<Record<string, PingState>>({});
+    const [sortPings, setSortPings] = useState<Record<string, PingState>>({});
     const [benchmarking, setBenchmarking] = useState(false);
     const [benchWarning, setBenchWarning] = useState<string | null>(null);
     const [benchmarkTarget, setBenchmarkTarget] = useState(() => {
@@ -437,12 +438,12 @@ export default function ServersPage({
 
     const latencyOf = useCallback(
         (entry: Entry) => {
-            const ping = pings[entry.key];
+            const ping = sortPings[entry.key];
             return ping?.status === 'ok'
                 ? (ping.latencyMs ?? Number.MAX_SAFE_INTEGER)
                 : Number.MAX_SAFE_INTEGER;
         },
-        [pings]
+        [sortPings]
     );
 
     const orderEntries = useCallback(
@@ -495,6 +496,7 @@ export default function ServersPage({
         }));
 
         const results: PingState[] = [];
+        const batchStates: Record<string, PingState> = {};
 
         try {
             const concurrency = Math.min(4, targets.length);
@@ -534,6 +536,7 @@ export default function ServersPage({
                         };
                     }
                     results.push(state);
+                    batchStates[entry.key] = state;
                     if (runIdRef.current === myRunId) {
                         setPing(entry.key, state);
                     }
@@ -545,6 +548,9 @@ export default function ServersPage({
             );
 
             if (runIdRef.current !== myRunId) return;
+
+            // Apply latency sort once at the end for a single smooth glide.
+            setSortPings((prev) => ({ ...prev, ...batchStates }));
 
             // Diagnose VPN / FakeIP / uniform failure patterns so instant
             // ~28ms completions always surface a clear explanation.
@@ -614,29 +620,32 @@ export default function ServersPage({
                     entry.preset.primary,
                     effectiveTarget
                 );
-                if (sample.connect_ms === null) {
-                    setPing(entry.key, {
-                        status: 'error',
-                        resolveMs: sample.resolve_ms,
-                        address: sample.address,
-                        error: `Resolved ${sample.address} in ${sample.resolve_ms} ms, but TCP connect failed`,
-                    });
-                } else {
-                    setPing(entry.key, {
-                        status: 'ok',
-                        latencyMs: sample.resolve_ms + sample.connect_ms,
-                        resolveMs: sample.resolve_ms,
-                        connectMs: sample.connect_ms,
-                        address: sample.address,
-                    });
-                }
+                const nextState: PingState =
+                    sample.connect_ms === null
+                        ? {
+                              status: 'error',
+                              resolveMs: sample.resolve_ms,
+                              address: sample.address,
+                              error: `Resolved ${sample.address} in ${sample.resolve_ms} ms, but TCP connect failed`,
+                          }
+                        : {
+                              status: 'ok',
+                              latencyMs: sample.resolve_ms + sample.connect_ms,
+                              resolveMs: sample.resolve_ms,
+                              connectMs: sample.connect_ms,
+                              address: sample.address,
+                          };
+                setPing(entry.key, nextState);
+                setSortPings((prev) => ({ ...prev, [entry.key]: nextState }));
             } catch (error) {
                 const message = String(error);
                 const isTimeout = /timed?\s?out|timeout/i.test(message);
-                setPing(entry.key, {
+                const errState: PingState = {
                     status: isTimeout ? 'timeout' : 'error',
                     error: message,
-                });
+                };
+                setPing(entry.key, errState);
+                setSortPings((prev) => ({ ...prev, [entry.key]: errState }));
                 if (/FakeIP|198\.18\./i.test(message)) {
                     setBenchWarning(t('servers.vpnFakeIpWarning'));
                 }
@@ -952,7 +961,7 @@ export default function ServersPage({
                                         {a.name}
                                     </span>
                                     {a.is_default && (
-                                        <span className="ms-auto shrink-0 rounded bg-[var(--dnss-raised)] px-1.5 py-0.5 text-[length:var(--dnss-fs-2xs)] text-[var(--dnss-ink-3)]">
+                                        <span className="ms-auto shrink-0 rounded-md border border-[var(--dnss-accent)]/30 bg-[var(--dnss-accent-soft)] px-1.5 py-0.5 text-[length:var(--dnss-fs-2xs)] font-semibold text-[var(--dnss-accent-text)]">
                                             {t('common.default')}
                                         </span>
                                     )}
@@ -1185,7 +1194,7 @@ export default function ServersPage({
             {/* Compact Benchmark Target Strip */}
             <div className="flex flex-wrap items-center gap-2 rounded-xl bg-[var(--dnss-surface)] px-3 py-2 ring-1 ring-[var(--dnss-border)]">
                 <span className="shrink-0 text-[length:var(--dnss-fs-xs)] font-medium text-[var(--dnss-ink-2)]">
-                    {t('servers.benchTarget')}
+                    {t('servers.benchTarget')}:
                 </span>
                 <input
                     dir="ltr"

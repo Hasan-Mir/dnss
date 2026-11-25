@@ -17,13 +17,27 @@ use tauri::{Emitter, Manager, PhysicalPosition, PhysicalSize, WindowEvent};
 #[derive(Default)]
 pub struct NetworkLock(Mutex<()>);
 
-/// Tracks the last time `"tray"` auto-hid on focus loss so a click on the
-/// taskbar tray icon that stole focus on mouse-down does not immediately
-/// re-open the popover on mouse-up.
+/// Tracks `"tray"` popover lifecycle state:
+/// - `last_blur`: suppresses the taskbar click race where mouse-down steals focus
+///   right before mouse-up fires TrayIconEvent::Click.
+/// - `pinned`: when true, clicking outside `"tray"` does not auto-hide it.
+/// - `drag_grace_until`: Win32 `start_dragging()` posts the modal move loop
+///   asynchronously and triggers `WM_KILLFOCUS` (`WindowEvent::Focused(false)`).
+///   `window_start_dragging` sets an initial grace deadline and each
+///   `WindowEvent::Moved` refreshes it while the user drags across monitors.
 #[derive(Default)]
-struct TrayState(Mutex<Option<Instant>>);
+struct TrayStateInner {
+    last_blur: Option<Instant>,
+    pinned: bool,
+    drag_grace_until: Option<Instant>,
+}
+
+#[derive(Default)]
+struct TrayState(Mutex<TrayStateInner>);
 
 const TRAY_BLUR_SUPPRESS: Duration = Duration::from_millis(250);
+const TRAY_DRAG_START_GRACE: Duration = Duration::from_millis(1500);
+const TRAY_DRAG_MOVE_GRACE: Duration = Duration::from_millis(600);
 
 /// Commands run on the blocking pool, so a blocking guard is fine here.
 fn acquire_network_lock(lock: &NetworkLock) -> Result<MutexGuard<'_, ()>, String> {
@@ -130,8 +144,8 @@ fn toggle_tray_window(app: &tauri::AppHandle, click_pos: PhysicalPosition<f64>) 
 
     // Suppress the classic taskbar click race where mouse-down steals focus
     // (hiding `"tray"` via Focused(false)) right before mouse-up fires Click.
-    if let Ok(mut last_blur) = app.state::<TrayState>().0.lock() {
-        if let Some(t) = last_blur.take() {
+    if let Ok(mut state) = app.state::<TrayState>().0.lock() {
+        if let Some(t) = state.last_blur.take() {
             if t.elapsed() < TRAY_BLUR_SUPPRESS {
                 return;
             }
@@ -313,6 +327,85 @@ fn quit_app(app: tauri::AppHandle) {
     app.exit(0);
 }
 
+#[tauri::command]
+async fn window_minimize(app: tauri::AppHandle) -> Result<(), String> {
+    let main = app
+        .get_webview_window("main")
+        .ok_or_else(|| "Main window not found".to_string())?;
+    main.minimize().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn window_toggle_maximize(app: tauri::AppHandle) -> Result<bool, String> {
+    let main = app
+        .get_webview_window("main")
+        .ok_or_else(|| "Main window not found".to_string())?;
+    let currently_max = main.is_maximized().unwrap_or(false);
+    if currently_max {
+        main.unmaximize().map_err(|e| e.to_string())?;
+    } else {
+        main.maximize().map_err(|e| e.to_string())?;
+    }
+    Ok(main.is_maximized().unwrap_or(!currently_max))
+}
+
+#[tauri::command]
+async fn window_is_maximized(app: tauri::AppHandle) -> Result<bool, String> {
+    let main = app
+        .get_webview_window("main")
+        .ok_or_else(|| "Main window not found".to_string())?;
+    main.is_maximized().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn window_close(app: tauri::AppHandle) -> Result<(), String> {
+    // Keep DNSS alive in the System Tray rather than destroying the window.
+    let main = app
+        .get_webview_window("main")
+        .ok_or_else(|| "Main window not found".to_string())?;
+    main.hide().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn set_tray_pinned(app: tauri::AppHandle, pinned: bool) -> Result<bool, String> {
+    let tray_state = app.state::<TrayState>();
+    let mut state = tray_state
+        .0
+        .lock()
+        .map_err(|_| "Tray state lock poisoned".to_string())?;
+    state.pinned = pinned;
+    Ok(state.pinned)
+}
+
+#[tauri::command]
+async fn get_tray_pinned(app: tauri::AppHandle) -> Result<bool, String> {
+    let tray_state = app.state::<TrayState>();
+    let state = tray_state
+        .0
+        .lock()
+        .map_err(|_| "Tray state lock poisoned".to_string())?;
+    Ok(state.pinned)
+}
+
+#[tauri::command]
+async fn window_start_dragging(app: tauri::AppHandle, label: Option<String>) -> Result<(), String> {
+    let target = match label.as_deref() {
+        Some("tray") => "tray",
+        _ => "main",
+    };
+    let win = app
+        .get_webview_window(target)
+        .ok_or_else(|| format!("Window '{}' not found", target))?;
+
+    if target == "tray" {
+        if let Ok(mut state) = app.state::<TrayState>().0.lock() {
+            state.drag_grace_until = Some(Instant::now() + TRAY_DRAG_START_GRACE);
+        }
+    }
+
+    win.start_dragging().map_err(|e| e.to_string())
+}
+
 /// Parse a benchmark target URL the same way the CLI does: an optional
 /// `http://`/`https://` scheme (https is assumed when missing), then the
 /// hostname. Only the default port of the scheme is ever dialed — parity
@@ -470,10 +563,30 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| match event {
+            WindowEvent::Moved(_) if window.label() == "tray" => {
+                if let Ok(mut state) = window.app_handle().state::<TrayState>().0.lock() {
+                    if let Some(until) = state.drag_grace_until {
+                        if Instant::now() < until {
+                            state.drag_grace_until = Some(Instant::now() + TRAY_DRAG_MOVE_GRACE);
+                        } else {
+                            state.drag_grace_until = None;
+                        }
+                    }
+                }
+            }
             WindowEvent::Focused(false) if window.label() == "tray" => {
                 if window.is_visible().unwrap_or(false) {
-                    if let Ok(mut last_blur) = window.app_handle().state::<TrayState>().0.lock() {
-                        *last_blur = Some(Instant::now());
+                    if let Ok(mut state) = window.app_handle().state::<TrayState>().0.lock() {
+                        if state.pinned {
+                            return;
+                        }
+                        if let Some(until) = state.drag_grace_until {
+                            if Instant::now() < until {
+                                return;
+                            }
+                            state.drag_grace_until = None;
+                        }
+                        state.last_blur = Some(Instant::now());
                     }
                     let _ = window.hide();
                 }
@@ -497,7 +610,14 @@ pub fn run() {
             benchmark_dns,
             show_main_window,
             hide_tray_window,
-            quit_app
+            quit_app,
+            window_minimize,
+            window_toggle_maximize,
+            window_is_maximized,
+            window_close,
+            window_start_dragging,
+            set_tray_pinned,
+            get_tray_pinned
         ])
         .run(tauri::generate_context!())
         .expect("error while running dnss");
