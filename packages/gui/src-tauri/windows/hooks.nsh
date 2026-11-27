@@ -3,6 +3,10 @@
 ; the `DnssService` background service so standard users can switch DNS
 ; without repeated UAC prompts.
 
+; Align the 150x57 header logo (`headerImage`) to the right edge of the white
+; MUI2 header bar so page titles and subtitles stay cleanly left-aligned.
+!define MUI_HEADERIMAGE_RIGHT
+
 !macro _DNSS_STOP_SERVICE
   nsExec::ExecToLog '"$SYSDIR\sc.exe" stop DnssService'
   Pop $0

@@ -4,7 +4,12 @@
         "windows": {
             "nsis": {
                 "installMode": "perMachine",
-                "installerHooks": "./windows/hooks.nsh"
+                "installerHooks": "./windows/hooks.nsh",
+                "installerIcon": "./icons/icon.ico",
+                "uninstallerIcon": "./icons/icon.ico",
+                "headerImage": "./icons/installer-header.bmp",
+                "uninstallerHeaderImage": "./icons/installer-header.bmp",
+                "sidebarImage": "./icons/installer-sidebar.bmp"
             }
         }
     }
