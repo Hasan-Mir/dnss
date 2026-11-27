@@ -100,6 +100,10 @@ Thank you to the DnsChanger contributors! ❤️
 
 DNSS collects **nothing**. No telemetry, no analytics, no accounts. The only network traffic it generates is the DNS benchmark queries you trigger yourself.
 
+> This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it.
+
+Free code signing provided by [SignPath.io](https://signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
+
 ## 🚀 Publishing (maintainers)
 
 npm workspaces automatically link `@seymi/dnss-core` to the local package while its
