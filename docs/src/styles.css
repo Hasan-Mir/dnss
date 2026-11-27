@@ -158,7 +158,7 @@ body {
     letter-spacing: normal;
 }
 
-.lp-page a {
+:where(.lp-page a) {
     color: inherit;
     text-decoration: none;
 }
@@ -292,7 +292,7 @@ body {
     border-color: rgba(255, 255, 255, 0.18);
 }
 
-.lp-primary-btn {
+.lp-page .lp-primary-btn {
     height: 40px;
     padding: 0 18px;
     border-radius: 10px;
