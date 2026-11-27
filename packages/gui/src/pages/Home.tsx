@@ -188,8 +188,8 @@ export default function HomePage({
         <div className="@container mx-auto flex w-full max-w-2xl flex-col gap-4">
             {/* Active Connection Hero Panel */}
             <section className="dnss-card rounded-2xl p-5">
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                    <div className="flex min-w-0 items-start gap-3.5">
+                <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 flex-1 items-start gap-3.5">
                         <div
                             className={`grid size-11 shrink-0 place-items-center rounded-xl transition-colors ${
                                 isCustomDnsActive
@@ -305,7 +305,7 @@ export default function HomePage({
                                 : t('home.noActiveAdapter')}
                         </span>
                         {activeAdapter?.kind && (
-                            <span className="shrink-0 rounded-md bg-[var(--dnss-surface)] px-1.5 py-0.5 text-[length:var(--dnss-fs-2xs)] text-[var(--dnss-ink-3)]">
+                            <span className="min-w-0 truncate rounded-md bg-[var(--dnss-surface)] px-1.5 py-0.5 text-[length:var(--dnss-fs-2xs)] text-[var(--dnss-ink-3)]">
                                 {activeAdapter.kind}
                             </span>
                         )}

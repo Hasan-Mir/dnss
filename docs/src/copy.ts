@@ -1,5 +1,27 @@
 export type LandingLang = 'en' | 'fa';
 
+export type ChalkTone =
+    | 'plain'
+    | 'blueBold'
+    | 'blueBright'
+    | 'cyan'
+    | 'cyanBold'
+    | 'green'
+    | 'greenBright'
+    | 'yellow'
+    | 'gray'
+    | 'bold';
+
+export interface ChalkSpan {
+    text: string;
+    tone?: ChalkTone;
+}
+
+export interface CliLine {
+    cmd?: string;
+    spans?: ChalkSpan[];
+}
+
 export interface CopyDict {
     nav: {
         demo: string;
@@ -29,25 +51,28 @@ export interface CopyDict {
     features: {
         title: string;
         subtitle: string;
-        service: {
+        crossPlatform: {
             title: string;
             desc: string;
-            badgePipe: string;
-            badgeDirect: string;
-            pipeLines: { step: string; detail: string }[];
-            directLines: { step: string; detail: string }[];
+            badge: string;
+            platforms: {
+                id: 'windows' | 'mac' | 'linux';
+                name: string;
+                detail: string;
+            }[];
+        };
+        quickSwitch: {
+            title: string;
+            desc: string;
+            items: { label: string; detail: string }[];
         };
         presets: {
             title: string;
             desc: string;
+            badge: string;
             items: { name: string; ip: string; ms: string }[];
         };
-        settingsSync: {
-            title: string;
-            desc: string;
-            badge: string;
-        };
-        safety: {
+        backupPrivacy: {
             title: string;
             desc: string;
             items: { label: string; detail: string }[];
@@ -58,10 +83,13 @@ export interface CopyDict {
         subtitle: string;
         copyCmd: string;
         copied: string;
+        adminTipTitle: string;
+        adminTipBody: string;
         tabs: {
             id: string;
             label: string;
-            lines: { cmd: string; out?: string }[];
+            copyText: string;
+            lines: CliLine[];
         }[];
     };
     download: {
@@ -89,6 +117,210 @@ export interface CopyDict {
     };
 }
 
+const ASCII_BANNER = `  ██████╗ ███╗   ██╗███████╗███████╗
+  ██╔══██╗████╗  ██║██╔════╝██╔════╝
+  ██║  ██║██╔██╗ ██║███████╗███████╗
+  ██║  ██║██║╚██╗██║╚════██║╚════██║
+  ██████╔╝██║ ╚████║███████║███████║
+  ╚═════╝ ╚═╝  ╚═══╝╚══════╝╚══════╝`;
+
+const CLI_TABS_SHARED: CopyDict['cli']['tabs'] = [
+    {
+        id: 'menu',
+        label: 'Main Menu',
+        copyText: 'dnss',
+        lines: [
+            { cmd: 'dnss' },
+            {
+                spans: [
+                    { text: `${ASCII_BANNER}\n`, tone: 'blueBold' },
+                    {
+                        text: '                 DNS SWITCHER\n\n',
+                        tone: 'blueBright',
+                    },
+                    { text: '? ', tone: 'green' },
+                    { text: 'What would you like to do? ', tone: 'bold' },
+                    { text: '(Use arrow keys)\n', tone: 'gray' },
+                    { text: '❯ Change DNS settings\n', tone: 'cyan' },
+                    {
+                        text:
+                            '  Add a DNS configuration\n' +
+                            '  Remove a DNS configuration\n' +
+                            '  Edit a DNS configuration\n' +
+                            '  Reset all adapters to DHCP (No DNS)\n' +
+                            '  Show currently used DNS configs\n' +
+                            '  Benchmark DNS servers\n' +
+                            '  Import / Export settings (settings.json)\n' +
+                            '  Exit',
+                        tone: 'plain',
+                    },
+                ],
+            },
+        ],
+    },
+    {
+        id: 'switch',
+        label: 'Switch DNS',
+        copyText: 'npx @seymi/dnss-cli',
+        lines: [
+            { cmd: 'npx @seymi/dnss-cli' },
+            {
+                spans: [
+                    { text: '? ', tone: 'green' },
+                    {
+                        text: 'Select the network adapter to change: ',
+                        tone: 'bold',
+                    },
+                    { text: 'Wi-Fi\n', tone: 'cyan' },
+                    { text: 'Using adapter: Wi-Fi\n\n', tone: 'greenBright' },
+                    { text: '? ', tone: 'green' },
+                    {
+                        text: 'Select a DNS configuration to apply:\n',
+                        tone: 'bold',
+                    },
+                    { text: '  No DNS (Use DHCP)\n', tone: 'plain' },
+                    {
+                        text: '  ── Saved configurations ──\n',
+                        tone: 'cyanBold',
+                    },
+                    {
+                        text: '  Office DNS: 10.10.0.53, alt: 10.10.0.54  ● active\n',
+                        tone: 'green',
+                    },
+                    { text: '  ── Built-in presets ──\n', tone: 'cyanBold' },
+                    {
+                        text: '❯ Cloudflare: 1.1.1.1, alt: 1.0.0.1\n',
+                        tone: 'cyan',
+                    },
+                    {
+                        text: '  Google: 8.8.8.8, alt: 8.8.4.4\n',
+                        tone: 'plain',
+                    },
+                    {
+                        text: '  AdGuard DNS: 94.140.14.14, alt: 94.140.15.15\n\n',
+                        tone: 'plain',
+                    },
+                    { text: '? ', tone: 'green' },
+                    {
+                        text: 'Apply the selected DNS setting to adapter "Wi-Fi"? ',
+                        tone: 'bold',
+                    },
+                    { text: 'Yes\n', tone: 'cyan' },
+                    {
+                        text: 'Setting DNS to 1.1.1.1 on adapter "Wi-Fi"...\n',
+                        tone: 'yellow',
+                    },
+                    {
+                        text: '✔ DNS settings updated successfully.',
+                        tone: 'green',
+                    },
+                ],
+            },
+        ],
+    },
+    {
+        id: 'status',
+        label: 'Current DNS',
+        copyText: 'dnss',
+        lines: [
+            {
+                spans: [
+                    { text: '? ', tone: 'green' },
+                    { text: 'What would you like to do? ', tone: 'bold' },
+                    {
+                        text: 'Show currently used DNS configs\n\n',
+                        tone: 'cyan',
+                    },
+                    {
+                        text:
+                            '┌─────────┬─────────────────┬──────────────────────────────┬──────────────────────────────┐\n' +
+                            '│ (index) │ Adapter         │ Primary DNS                  │ Alternative DNS              │\n' +
+                            '├─────────┼─────────────────┼──────────────────────────────┼──────────────────────────────┤\n' +
+                            "│    0    │ 'Wi-Fi'         │ '10.10.0.53 (Office DNS)'    │ '10.10.0.54 (Office DNS)'    │\n" +
+                            "│    1    │ 'Ethernet'      │ '192.168.1.1'                │ 'N/A'                        │\n" +
+                            "│    2    │ 'vEthernet'     │ 'N/A'                        │ 'N/A'                        │\n" +
+                            '└─────────┴─────────────────┴──────────────────────────────┴──────────────────────────────┘\n',
+                        tone: 'plain',
+                    },
+                    {
+                        text: '? Press ENTER to return to the main menu...',
+                        tone: 'gray',
+                    },
+                ],
+            },
+        ],
+    },
+    {
+        id: 'benchmark',
+        label: 'Benchmark',
+        copyText: 'dnss',
+        lines: [
+            {
+                spans: [
+                    { text: '? ', tone: 'green' },
+                    {
+                        text: 'Target URL used for the benchmark: ',
+                        tone: 'bold',
+                    },
+                    { text: 'https://www.cloudflare.com\n', tone: 'cyan' },
+                    {
+                        text: 'Benchmarking saved configurations and DNS presets (this can take a while)...\n\n',
+                        tone: 'greenBright',
+                    },
+                    {
+                        text:
+                            '┌─────────┬──────────────┬─────────────────┬──────────────┬────────┐\n' +
+                            '│ (index) │ Name         │ Server          │ Latency (ms) │ Status │\n' +
+                            '├─────────┼──────────────┼─────────────────┼──────────────┼────────┤\n' +
+                            "│    0    │ 'Cloudflare' │ '1.1.1.1'       │      18      │ 'ok'   │\n" +
+                            "│    1    │ 'Google'     │ '8.8.8.8'       │      24      │ 'ok'   │\n" +
+                            "│    2    │ 'AdGuard'    │ '94.140.14.14'  │      31      │ 'ok'   │\n" +
+                            "│    3    │ 'Shecan'     │ '178.22.122.100'│      42      │ 'ok'   │\n" +
+                            '└─────────┴──────────────┴─────────────────┴──────────────┴────────┘',
+                        tone: 'plain',
+                    },
+                ],
+            },
+        ],
+    },
+    {
+        id: 'backup',
+        label: 'Backup & Sync',
+        copyText: 'npm install -g @seymi/dnss-cli',
+        lines: [
+            { cmd: 'npm install -g @seymi/dnss-cli' },
+            {
+                spans: [
+                    {
+                        text: 'Unified settings file: ~/.dnss/settings.json\n',
+                        tone: 'gray',
+                    },
+                    { text: '? ', tone: 'green' },
+                    {
+                        text: 'Settings & Backup (settings.json): ',
+                        tone: 'bold',
+                    },
+                    { text: 'Export settings.json to a file\n', tone: 'cyan' },
+                    { text: '? ', tone: 'green' },
+                    { text: 'Export destination path: ', tone: 'bold' },
+                    { text: './dnss-settings.json\n', tone: 'cyan' },
+                    {
+                        text: '✔ Exported settings.json to ./dnss-settings.json\n\n',
+                        tone: 'green',
+                    },
+                    { text: '? ', tone: 'green' },
+                    { text: 'Path to settings.json to import: ', tone: 'bold' },
+                    { text: './dnss-settings.json\n', tone: 'cyan' },
+                    {
+                        text: '✔ Imported settings.json (3 custom server(s), theme: dark, language: en).',
+                        tone: 'green',
+                    },
+                ],
+            },
+        ],
+    },
+];
+
 export const COPY: Record<LandingLang, CopyDict> = {
     en: {
         nav: {
@@ -99,14 +331,14 @@ export const COPY: Record<LandingLang, CopyDict> = {
             langToggle: 'فارسی',
         },
         hero: {
-            badge: 'Windows · macOS · Linux · Free & Open Source',
-            title: 'Switch your DNS in one click.',
+            badge: 'Cross-Platform · Windows · macOS · Linux · Open Source',
+            title: 'Switch DNS in one click.',
             highlight: 'DNS',
             subtitle:
-                'A calm, native Rust + Tauri v2 desktop app and CLI to switch between Cloudflare, Google, AdGuard, Shecan, or custom resolvers — zero UAC prompts, real-time benchmarking, and unified settings.json sync.',
+                'A fast, quiet desktop app and terminal CLI for Windows, macOS, and Linux. Switch between Cloudflare, Google, AdGuard, Shecan, or custom DNS servers with live latency benchmarks, tray quick-switching, and effortless backup.',
             ctaPrimary: 'Download for Windows',
             ctaSecondary: 'Explore Features',
-            installHint: 'Or run instantly via npm CLI:',
+            installHint: 'Or run from your terminal:',
         },
         demo: {
             workbenchLabel: 'Live Interactive Demo',
@@ -115,49 +347,60 @@ export const COPY: Record<LandingLang, CopyDict> = {
             accentLabel: 'Accent color',
             demoLangLabel: 'Switch demo UI language',
             reset: 'Reset demo state',
-            hint: 'Try toggling DNS, opening the Servers dropdown, adding a custom server, or editing settings.json in Settings — all dialogs stay inside this frame.',
+            hint: 'Try toggling DNS, opening Servers, benchmarking, adding a custom server, or exporting settings — everything works right inside this frame.',
         },
         features: {
-            title: 'Built for speed, clarity, and zero friction',
+            title: 'Everything you need to manage DNS without friction',
             subtitle:
-                'Native OS network integration paired with a quiet, tactile desktop interface and a shared CLI engine.',
-            service: {
-                title: 'UAC-Free Windows Service & Per-Adapter Control',
-                desc: 'Install once and switch DNS on any single adapter or all adapters simultaneously without repeated UAC dialogs.',
-                badgePipe: 'DnssService (Pipe)',
-                badgeDirect: 'Per-Adapter Mode',
-                pipeLines: [
+                'A calm desktop experience and full-featured CLI built around real day-to-day DNS control.',
+            crossPlatform: {
+                title: 'Cross-Platform Support',
+                desc: 'Works natively across Windows, macOS, and Linux with the same clean workflow everywhere.',
+                badge: 'Windows · macOS · Linux',
+                platforms: [
                     {
-                        step: '1. GUI / CLI (asInvoker)',
-                        detail: 'Sends typed JSON over \\\\.\\pipe\\dnss-service (SDDL restricted)',
+                        id: 'windows',
+                        name: 'Windows',
+                        detail: 'Switch one adapter or all adapters together, with a one-time background service so switching stays prompt-free.',
                     },
                     {
-                        step: '2. DnssService (LocalSystem)',
-                        detail: 'Validates IPv4s & adapter names, applies via Set-DnsClientServerAddress',
+                        id: 'mac',
+                        name: 'macOS',
+                        detail: 'Updates active Wi-Fi, Ethernet, or USB network services cleanly with smart fallback when a VPN tunnel is running.',
                     },
                     {
-                        step: '3. Instant Sync',
-                        detail: 'Main window, System Tray popover, and CLI stay synchronized',
+                        id: 'linux',
+                        name: 'Linux',
+                        detail: 'Integrates with NetworkManager and disables auto-learned IPv6 DNS so ISP resolvers cannot bypass your selection.',
                     },
                 ],
-                directLines: [
+            },
+            quickSwitch: {
+                title: 'One-Click Control & System Tray',
+                desc: 'Designed for instant switching without digging through OS network menus.',
+                items: [
                     {
-                        step: 'Wi-Fi (default)',
-                        detail: 'Static · 1.1.1.1 · 1.0.0.1 (Cloudflare)',
+                        label: 'Smart Power Toggle',
+                        detail: 'Switch back to automatic DHCP anytime while keeping your active DNS saved for one-click restore.',
                     },
                     {
-                        step: 'Ethernet',
-                        detail: 'DHCP · 192.168.1.1 (Automatic)',
+                        label: 'Per-Adapter Selection',
+                        detail: 'Target Wi-Fi, Ethernet, WSL, or every adapter at once from a single click.',
                     },
                     {
-                        step: 'vEthernet (WSL)',
-                        detail: 'Select individually or target all adapters in one click',
+                        label: 'System Tray Popover',
+                        detail: 'Quick-switch next to your clock with search, pin-to-stay-open, and live ping.',
+                    },
+                    {
+                        label: 'Instant Cache Flush',
+                        detail: 'Clear your OS DNS cache right after switching so changes apply immediately.',
                     },
                 ],
             },
             presets: {
-                title: '17+ Presets & Live Benchmark',
-                desc: 'Measure real UDP resolve + TCP connect latency and rank resolvers smoothly in place.',
+                title: '17+ Built-In Providers & Live Benchmark',
+                desc: 'Measure real resolve + connection latency against any site and sort smoothly from fastest to slowest — with automatic VPN/FakeIP interference warnings.',
+                badge: 'Live Latency Sort',
                 items: [
                     { name: 'Cloudflare', ip: '1.1.1.1', ms: '18 ms' },
                     { name: 'Google', ip: '8.8.8.8', ms: '24 ms' },
@@ -166,114 +409,64 @@ export const COPY: Record<LandingLang, CopyDict> = {
                     { name: 'Electro', ip: '78.157.42.100', ms: '47 ms' },
                 ],
             },
-            settingsSync: {
-                title: 'VS Code-Style settings.json',
-                desc: 'Export, import, or edit one unified ~/.dnss/settings.json file — every preference and custom DNS server stays synced between GUI and CLI.',
-                badge: 'GUI ↔ CLI Synced',
-            },
-            safety: {
-                title: 'Rust + Tauri v2 + Privacy First',
-                desc: 'Engineered with strict input validation, atomic config writes, and zero background telemetry.',
+            backupPrivacy: {
+                title: 'Backup, Sync & Complete Privacy',
+                desc: 'Your servers, look, and preferences stay yours — portable and private.',
                 items: [
                     {
-                        label: '100% Offline',
-                        detail: 'Zero analytics, zero tracking — only the DNS benchmarks you trigger.',
+                        label: 'Export & Import Backup',
+                        detail: 'Export your custom DNS servers, theme, accent color, and preferences to a file and import them on any machine.',
                     },
                     {
-                        label: 'System Tray Popover',
-                        detail: 'Frameless quick-switcher anchored to your taskbar with pin & search.',
+                        label: 'GUI & CLI Stay Synced',
+                        detail: 'Servers and settings added in the desktop app show up automatically in the CLI, and vice versa.',
                     },
                     {
-                        label: 'Atomic Config Store',
-                        detail: 'Exclusive temp-file writes with .bak recovery and symlink protection.',
+                        label: 'Custom Look & Languages',
+                        detail: 'Light and dark themes, custom accent color picker, multiple fonts, font sizes, and full English/Persian UI.',
                     },
                     {
-                        label: 'MIT Open Source',
-                        detail: 'Auditable Rust backend, TypeScript core, and reproducible releases.',
+                        label: '100% Offline & Private',
+                        detail: 'Zero accounts, zero analytics, zero background tracking — only the benchmarks you trigger.',
                     },
                 ],
             },
         },
         cli: {
-            title: 'Full-featured CLI, synced with the desktop app',
+            title: 'Interactive CLI, synced with the desktop app',
             subtitle:
-                'Manage custom servers, benchmark resolvers, and import/export settings.json straight from your terminal.',
+                'Inspect active adapters, switch presets or custom servers, run benchmarks, and export or import your setup right from your terminal.',
             copyCmd: 'Copy',
             copied: 'Copied',
-            tabs: [
-                {
-                    id: 'switch',
-                    label: 'Quick Switch',
-                    lines: [
-                        {
-                            cmd: 'npx @seymi/dnss-cli',
-                            out: '✔ Connected to DnssService (UAC-free mode)',
-                        },
-                        {
-                            cmd: '# Select "Change DNS settings" → Wi-Fi → Cloudflare (1.1.1.1)',
-                            out: '✔ DNS settings updated successfully.',
-                        },
-                    ],
-                },
-                {
-                    id: 'benchmark',
-                    label: 'Benchmark',
-                    lines: [
-                        {
-                            cmd: '# Select "Benchmark DNS servers" (uses benchmark.target from settings.json)',
-                            out: 'Cloudflare (1.1.1.1)  18 ms  ok\nGoogle     (8.8.8.8)  24 ms  ok\nAdGuard    (94.140.14.14) 31 ms ok',
-                        },
-                    ],
-                },
-                {
-                    id: 'settings',
-                    label: 'settings.json',
-                    lines: [
-                        {
-                            cmd: '# Select "Import / Export settings (settings.json)"',
-                            out: 'Unified settings file: ~/.dnss/settings.json\n✔ Exported settings.json to ./dnss-settings.json',
-                        },
-                        {
-                            cmd: '# Import on another machine (syncs custom servers + preferences)',
-                            out: '✔ Imported settings.json (3 custom server(s), theme: dark, language: en).',
-                        },
-                    ],
-                },
-                {
-                    id: 'install',
-                    label: 'Install',
-                    lines: [
-                        {
-                            cmd: 'npm install -g @seymi/dnss-cli',
-                            out: 'added 1 package — run `dnss` from any terminal',
-                        },
-                    ],
-                },
-            ],
+            adminTipTitle:
+                'On a non-admin account or tired of elevation prompts?',
+            adminTipBody:
+                'If you run the CLI standalone via npm, changing DNS prompts for admin rights (UAC on Windows, sudo on macOS/Linux). On Windows, if you are not an admin or want prompt-free switching, install the DNSS desktop app first instead of standalone npm — its one-time installer sets up the background service so both the desktop app and the `dnss` CLI switch DNS silently without repeated UAC prompts.',
+            tabs: CLI_TABS_SHARED,
         },
         download: {
             title: 'Get DNSS',
             subtitle:
-                'Choose the native desktop installer or run the lightweight CLI anywhere Node.js is installed.',
+                'Download the desktop installer for your OS or run the interactive CLI from your terminal.',
             windows: {
                 title: 'Windows Installer',
                 badge: 'Recommended · .exe',
-                desc: 'Installs DNSS desktop app, System Tray popover, and DnssService once for UAC-free DNS switching.',
+                desc: 'Installs DNSS desktop app, System Tray quick-switcher, and the one-time background service for prompt-free DNS switching.',
                 btn: 'Download Windows .exe',
             },
             unix: {
                 title: 'macOS & Linux',
                 badge: 'GitHub Releases',
-                desc: 'Native Tauri desktop bundles for macOS (networksetup) and Linux (NetworkManager / nmcli).',
+                desc: 'Native desktop installers for macOS (Apple Silicon & Intel) and Linux (DEB, RPM, AppImage).',
                 btn: 'Browse Releases',
             },
             cliPkg: {
                 title: 'CLI Package',
                 badge: 'npm · Node 18+',
-                desc: 'Interactive terminal UI sharing ~/.dnss/settings.json and DnssService with the desktop app.',
+                desc: 'Full interactive terminal interface sharing saved servers and preferences with the desktop app.',
                 cmd: 'npm install -g @seymi/dnss-cli',
             },
-            credits: 'MIT Licensed · Built with Rust, Tauri v2, and React.',
+            credits: 'Built by SeyMi · Free & Open Source (MIT)',
         },
     },
     fa: {
@@ -285,65 +478,76 @@ export const COPY: Record<LandingLang, CopyDict> = {
             langToggle: 'English',
         },
         hero: {
-            badge: 'ویندوز · مک · لینوکس · رایگان و متن‌باز',
-            title: 'تغییر DNS شما تنها با یک کلیک.',
+            badge: 'کراس‌پلتفرم · ویندوز · مک · لینوکس · رایگان و متن‌باز',
+            title: 'مدیریت راحت و سریع DNS',
             highlight: 'DNS',
             subtitle:
-                'برنامهٔ دسکتاپ سریع با Rust و Tauri v2 همراه با CLI یکپارچه برای جابه‌جایی بین کلودفلر، گوگل، ادگارد، شکن و سرورهای سفارشی — بدون پنجرهٔ تکراری UAC، با بنچمارک واقعی و همگام‌سازی settings.json.',
+                'یه برنامه دسکتاپ سبک و سریع برای ویندوز، مک و لینوکس همراه با ابزار ترمینال (CLI). راحت بین کلودفلر، گوگل، ادگارد، شکن یا سرورهای دلخواه جابه‌جا بشید، پینگ واقعی سرورها رو بسنجید و هر وقت خواستید با یک کلیک برگردید به حالت عادی.',
             ctaPrimary: 'دانلود برای ویندوز',
-            ctaSecondary: 'مشاهدهٔ قابلیت‌ها',
-            installHint: 'یا اجرای مستقیم از طریق CLI:',
+            ctaSecondary: 'دیدن قابلیت‌ها',
+            installHint: 'یا اجرای مستقیم از ترمینال:',
         },
         demo: {
             workbenchLabel: 'دموی تعاملی زنده',
             themeLabel: 'تم دمو',
             themes: { dark: 'تاریک', light: 'روشن' },
             accentLabel: 'رنگ اصلی',
-            demoLangLabel: 'تغییر زبان رابط دمو',
+            demoLangLabel: 'تغییر زبان دمو',
             reset: 'بازنشانی دمو',
-            hint: 'تغییر DNS، منوی انتخاب آداپتورها، افزودن سرور سفارشی یا ویرایش settings.json در تنظیمات را امتحان کنید — تمام مودال‌ها درون همین کادر باز می‌شوند.',
+            hint: 'عوض کردن DNS، انتخاب آداپتور، افزودن سرور سفارشی، پینگ گرفتن یا تغییر تم و رنگ رو همین جا امتحان کنید. همه پنجره‌ها توی همین کادر باز می‌شن.',
         },
         features: {
-            title: 'ساخته‌شده برای سرعت، شفافیت و سادگی',
+            title: 'همه چیز برای مدیریت بی‌دردسر DNS',
             subtitle:
-                'یکپارچگی بومی با شبکهٔ سیستم‌عامل در کنار رابط کاربری آرام و موتور مشترک با CLI.',
-            service: {
-                title: 'سرویس ویندوز بدون UAC و کنترل تک‌آداپتوری',
-                desc: 'فقط یک‌بار نصب کنید و بدون پنجره‌های تکراری دسترسی ادمین، DNS را روی یک آداپتور یا همهٔ آداپتورها تغییر دهید.',
-                badgePipe: 'DnssService (Pipe)',
-                badgeDirect: 'حالت تک‌آداپتوری',
-                pipeLines: [
+                'یه تجربه آروم، سریع و کاربردی روی دسکتاپ و ترمینال، بدون شلوغی و تنظیمات گیج‌کننده.',
+            crossPlatform: {
+                title: 'پشتیبانی کامل از همه سیستم‌عامل‌ها',
+                desc: 'روی ویندوز، مک و لینوکس دقیقاً با همون سادگی و سرعت روی شبکه سیستم کار می‌کنه.',
+                badge: 'ویندوز · مک · لینوکس',
+                platforms: [
                     {
-                        step: '۱. رابط کاربری / CLI',
-                        detail: 'ارسال درخواست JSON تایپ‌شده از طریق \\\\.\\pipe\\dnss-service با محدودیت SDDL',
+                        id: 'windows',
+                        name: 'ویندوز',
+                        detail: 'اعمال DNS روی یک آداپتور یا همه آداپتورها با هم، همراه با سرویس پس‌زمینه تا موقع تغییر دیگه معطل تایید ادمین نشید.',
                     },
                     {
-                        step: '۲. سرویس DnssService',
-                        detail: 'اعتبارسنجی IPv4 و نام آداپتور و اعمال امن با Set-DnsClientServerAddress',
+                        id: 'mac',
+                        name: 'مک (macOS)',
+                        detail: 'تنظیم تمیز سرویس‌های شبکه مثل Wi-Fi و Ethernet با پشتیبانی هوشمند وقتی VPN فعاله.',
                     },
                     {
-                        step: '۳. همگام‌سازی آنی',
-                        detail: 'پنجرهٔ اصلی، پنل سینی سیستم و CLI هم‌زمان به‌روز می‌شوند',
+                        id: 'linux',
+                        name: 'لینوکس',
+                        detail: 'هماهنگ با NetworkManager و جلوگیری خودکار از نشت DNS از طریق IPv6 اینترنت.',
                     },
                 ],
-                directLines: [
+            },
+            quickSwitch: {
+                title: 'تغییر با یک کلیک و پنل کنار ساعت',
+                desc: 'دیگه نیازی به گشتن توی تنظیمات شبکه ویندوز یا زدن دستورات دستی نیست.',
+                items: [
                     {
-                        step: 'Wi-Fi (پیش‌فرض)',
-                        detail: 'ثابت · 1.1.1.1 · 1.0.0.1 (Cloudflare)',
+                        label: 'کلید هوشمند قطع و وصل',
+                        detail: 'هر وقت خواستید به DHCP برگردید، آخرین DNS فعال ذخیره می‌مونه تا با یک کلیک برگرده.',
                     },
                     {
-                        step: 'Ethernet',
-                        detail: 'DHCP · 192.168.1.1 (خودکار)',
+                        label: 'کنترل جداگانه آداپتورها',
+                        detail: 'انتخاب کنید DNS فقط روی وای‌فای، کابل شبکه یا روی همه آداپتورها هم‌زمان تنظیم بشه.',
                     },
                     {
-                        step: 'vEthernet (WSL)',
-                        detail: 'انتخاب جداگانهٔ هر آداپتور یا اعمال روی همه با یک کلیک',
+                        label: 'پنل سریع سینی سیستم',
+                        detail: 'پاپ‌اوور جمع‌وجور کنار ساعت با جست‌وجو، پینگ و امکان سنجاق کردن پنجره روی صفحه.',
+                    },
+                    {
+                        label: 'پاکسازی کش DNS',
+                        detail: 'با یک کلیک کش سیستم‌عامل رو خالی کنید تا DNS جدید بلافاصله اثر کنه.',
                     },
                 ],
             },
             presets: {
-                title: 'بیش از ۱۷ سرور آماده و بنچمارک زنده',
-                desc: 'سنجش واقعی زمان Resolve و اتصال TCP و مرتب‌سازی نرم سرورها بر اساس کمترین تأخیر.',
+                title: 'بیش از ۱۷ سرور آماده و پینگ واقعی',
+                desc: 'سرعت واقعی اتصال هر سرور رو به دامنه دلخواه بسنجید و لیست رو از سریع‌ترین به کندترین مرتب کنید. اگر VPN روی تست اثر بذاره هم بهتون هشدار می‌ده.',
+                badge: 'مرتب‌سازی بر اساس سرعت',
                 items: [
                     { name: 'Cloudflare', ip: '1.1.1.1', ms: '18 ms' },
                     { name: 'Google', ip: '8.8.8.8', ms: '24 ms' },
@@ -352,115 +556,70 @@ export const COPY: Record<LandingLang, CopyDict> = {
                     { name: 'Electro', ip: '78.157.42.100', ms: '47 ms' },
                 ],
             },
-            settingsSync: {
-                title: 'فایل یکپارچهٔ settings.json',
-                desc: 'خروجی، ورودی و ویرایش مستقیم ~/.dnss/settings.json مشابه VS Code — تنظیمات و DNSهای سفارشی بین GUI و CLI کاملاً یکسان می‌مانند.',
-                badge: 'همگام بین GUI و CLI',
-            },
-            safety: {
-                title: 'Rust + Tauri v2 + اولویت حریم خصوصی',
-                desc: 'طراحی‌شده با اعتبارسنجی سخت‌گیرانه، ذخیره‌سازی اتمیک تنظیمات و صفر تله‌متری.',
+            backupPrivacy: {
+                title: 'بکاپ راحت، همگام با CLI و کاملاً خصوصی',
+                desc: 'تنظیمات و سرورها همیشه بین دسکتاپ و ترمینال هماهنگه و به‌راحتی قابل انتقاله.',
                 items: [
                     {
-                        label: 'کاملاً آفلاین',
-                        detail: 'بدون ردیابی و آنالیتیکس — تنها درخواست شبکه‌ای بنچمارک‌هایی است که خودتان اجرا می‌کنید.',
+                        label: 'بکاپ و انتقال تنظیمات (Export / Import)',
+                        detail: 'از همه سرورهای سفارشی، تم، رنگ و تنظیمات یه خروجی بگیرید و روی هر سیستم دیگه‌ای به‌راحتی برگردونید.',
                     },
                     {
-                        label: 'پنل سینی سیستم',
-                        detail: 'پاپ‌اوور سریع کنار ساعت ویندوز با جست‌وجو، بنچمارک و سنجاق پنجره.',
+                        label: 'هماهنگی خودکار با CLI',
+                        detail: 'هر سروری که توی نسخه دسکتاپ اضافه کنید، همون لحظه توی ترمینال هم در دسترسه و برعکس.',
                     },
                     {
-                        label: 'ذخیره‌سازی اتمیک',
-                        detail: 'نوشتن امن با فایل موقت اختصاصی، نسخهٔ پشتیبان .bak و محافظت در برابر Symlink.',
+                        label: 'شخصی‌سازی کامل ظاهر',
+                        detail: 'تم روشن و تاریک، انتخاب‌گر رنگ دلخواه، فونت‌های متنوع، تغییر سایز نوشته و رابط فارسی کامل.',
                     },
                     {
-                        label: 'متن‌باز با مجوز MIT',
-                        detail: 'بک‌اند قابل ممیزی با Rust، هستهٔ TypeScript و انتشار شفاف روی گیت‌هاب.',
+                        label: 'کاملاً آفلاین و بدون ردیابی',
+                        detail: 'هیچ اکانت یا ردیابی وجود نداره؛ تنها ارتباط شبکه همون تست سرعتیه که خودتون می‌زنید.',
                     },
                 ],
             },
         },
         cli: {
-            title: 'ابزار ترمینال کامل، همگام با نسخهٔ دسکتاپ',
+            title: 'نسخه ترمینال کامل، هماهنگ با برنامه دسکتاپ',
             subtitle:
-                'مدیریت سرورهای سفارشی، بنچمارک و انتقال settings.json مستقیم از خط فرمان.',
+                'دیدن وضعیت فعلی آداپتورها، تغییر سریع، تست پینگ سرورها و خروجی یا ورودی گرفتن از تنظیمات مستقیم از خط فرمان.',
             copyCmd: 'کپی',
             copied: 'کپی شد',
+            adminTipTitle:
+                'دسترسی ادمین ندارید یا نمی‌خواهید هر بار پنجره مجوز باز بشه؟',
+            adminTipBody:
+                'اگر ابزار CLI رو مستقیم از npm نصب کنید، موقع تغییر DNS توی ویندوز هر بار پنجره UAC (و توی لینوکس و مک درخواست sudo) باز می‌شه. اگر سیستم طوریه که دسترسی ادمین ندارید یا نمی‌خواهید هر سری برای تغییر DNS مجوز تایید کنید، به‌جای استفاده تنها از npm، اول خود برنامه دسکتاپ رو نصب کنید؛ با نصب برنامه، سرویس پس‌زمینه یک‌بار فعال می‌شه و بعد از اون هم برنامه دسکتاپ و هم دستور `dnss` در ترمینال بدون نیاز به دسترسی مجدد یا پنجره ادمین کار می‌کنن.',
             tabs: [
-                {
-                    id: 'switch',
-                    label: 'تغییر سریع',
-                    lines: [
-                        {
-                            cmd: 'npx @seymi/dnss-cli',
-                            out: '✔ Connected to DnssService (UAC-free mode)',
-                        },
-                        {
-                            cmd: '# Select "Change DNS settings" → Wi-Fi → Cloudflare (1.1.1.1)',
-                            out: '✔ DNS settings updated successfully.',
-                        },
-                    ],
-                },
-                {
-                    id: 'benchmark',
-                    label: 'بنچمارک',
-                    lines: [
-                        {
-                            cmd: '# Select "Benchmark DNS servers" (uses benchmark.target from settings.json)',
-                            out: 'Cloudflare (1.1.1.1)  18 ms  ok\nGoogle     (8.8.8.8)  24 ms  ok\nAdGuard    (94.140.14.14) 31 ms ok',
-                        },
-                    ],
-                },
-                {
-                    id: 'settings',
-                    label: 'settings.json',
-                    lines: [
-                        {
-                            cmd: '# Select "Import / Export settings (settings.json)"',
-                            out: 'Unified settings file: ~/.dnss/settings.json\n✔ Exported settings.json to ./dnss-settings.json',
-                        },
-                        {
-                            cmd: '# Import on another machine (syncs custom servers + preferences)',
-                            out: '✔ Imported settings.json (3 custom server(s), theme: dark, language: en).',
-                        },
-                    ],
-                },
-                {
-                    id: 'install',
-                    label: 'نصب',
-                    lines: [
-                        {
-                            cmd: 'npm install -g @seymi/dnss-cli',
-                            out: 'added 1 package — run `dnss` from any terminal',
-                        },
-                    ],
-                },
+                { ...CLI_TABS_SHARED[0], label: 'منوی اصلی' },
+                { ...CLI_TABS_SHARED[1], label: 'تغییر DNS' },
+                { ...CLI_TABS_SHARED[2], label: 'وضعیت فعلی' },
+                { ...CLI_TABS_SHARED[3], label: 'بنچمارک' },
+                { ...CLI_TABS_SHARED[4], label: 'بکاپ و انتقال' },
             ],
         },
         download: {
             title: 'دریافت DNSS',
             subtitle:
-                'نصاب دسکتاپ بومی را دانلود کنید یا CLI سبک را روی هر سیستمی با Node.js اجرا کنید.',
+                'نسخه دسکتاپ سیستم‌عامل خودتون رو دانلود کنید یا ابزار CLI رو توی ترمینال اجرا کنید.',
             windows: {
                 title: 'نصاب ویندوز',
                 badge: 'پیشنهادی · .exe',
-                desc: 'نصب نسخهٔ دسکتاپ، پنل سینی سیستم و سرویس DnssService برای تغییر DNS بدون پنجرهٔ UAC.',
-                btn: 'دانلود نسخهٔ ویندوز (.exe)',
+                desc: 'نصب برنامه دسکتاپ، پنل سینی سیستم و فعال‌سازی سرویس پس‌زمینه تا تغییر DNS همیشه سریع و بدون پنجره ادمین انجام بشه.',
+                btn: 'دانلود نسخه ویندوز (.exe)',
             },
             unix: {
                 title: 'مک و لینوکس',
                 badge: 'انتشارهای گیت‌هاب',
-                desc: 'بسته‌های بومی دسکتاپ برای macOS (networksetup) و Linux (NetworkManager / nmcli).',
-                btn: 'مشاهدهٔ نسخه‌ها',
+                desc: 'فایل نصاب دسکتاپ برای macOS (اپل سیلیکون و اینتل) و لینوکس (DEB، RPM و AppImage).',
+                btn: 'مشاهده نسخه‌ها',
             },
             cliPkg: {
-                title: 'پکیج CLI',
+                title: 'نسخه ترمینال (CLI)',
                 badge: 'npm · Node 18+',
-                desc: 'رابط ترمینال تعاملی با فایل مشترک ~/.dnss/settings.json و اتصال به DnssService.',
+                desc: 'رابط تعاملی ترمینال با لیست کامل سرورها، تست سرعت و هماهنگی خودکار با برنامه دسکتاپ.',
                 cmd: 'npm install -g @seymi/dnss-cli',
             },
-            credits:
-                'منتشرشده با مجوز MIT · ساخته‌شده با Rust، Tauri v2 و React.',
+            credits: 'ساخته شده توسط SeyMi · رایگان و متن‌باز (MIT)',
         },
     },
 };

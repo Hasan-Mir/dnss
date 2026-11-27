@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import App from '@gui/App';
 import type { Lang } from '@gui/i18n';
 import type { ThemeMode } from '@gui/theme';
@@ -14,11 +14,39 @@ const ACCENTS = [
     { name: 'Rose', hex: '#f43f5e' },
 ];
 
+/** Virtual dimensions of the embedded desktop app so nothing wraps on desktop,
+    while narrow mobile viewports step down smoothly to keep text legible. */
+function getVirtualSize(frameWidth: number): { width: number; height: number } {
+    if (frameWidth > 0 && frameWidth < 460) {
+        return { width: 600, height: 560 };
+    }
+    return { width: 840, height: 590 };
+}
+
 export function DemoStage({ copy }: { copy: CopyDict['demo'] }) {
     const [theme, setTheme] = useState<'dark' | 'light'>('dark');
     const [accent, setAccent] = useState('#10b981');
     const [demoLang, setDemoLang] = useState<Lang>('en');
     const [demoKey, setDemoKey] = useState(0);
+    const frameRef = useRef<HTMLDivElement | null>(null);
+    const [frameWidth, setFrameWidth] = useState<number>(640);
+
+    useEffect(() => {
+        const el = frameRef.current;
+        if (!el) return;
+        const measure = () => {
+            const w = el.clientWidth;
+            if (w > 0) setFrameWidth(w);
+        };
+        measure();
+        if (typeof ResizeObserver !== 'undefined') {
+            const ro = new ResizeObserver(() => measure());
+            ro.observe(el);
+            return () => ro.disconnect();
+        }
+        window.addEventListener('resize', measure);
+        return () => window.removeEventListener('resize', measure);
+    }, []);
 
     const handleAppThemeChange = useCallback((next: ThemeMode) => {
         if (next === 'system') {
@@ -39,6 +67,10 @@ export function DemoStage({ copy }: { copy: CopyDict['demo'] }) {
         setDemoLang('en');
         setDemoKey((k) => k + 1);
     };
+
+    const virtual = getVirtualSize(frameWidth);
+    const scale = Math.min(1, frameWidth / virtual.width);
+    const scaledHeight = Math.round(virtual.height * scale);
 
     return (
         <div className="lp-demo-stage" id="demo">
@@ -111,17 +143,31 @@ export function DemoStage({ copy }: { copy: CopyDict['demo'] }) {
                 </div>
             </div>
 
-            <div className="dnss-demo-frame">
-                <App
-                    key={`dnss-demo-${demoKey}`}
-                    embedded
-                    theme={theme}
-                    onThemeChange={handleAppThemeChange}
-                    lang={demoLang}
-                    onLangChange={setDemoLang}
-                    accent={accent}
-                    onAccentChange={setAccent}
-                />
+            <div
+                ref={frameRef}
+                dir="ltr"
+                className="dnss-demo-frame"
+                style={{ height: `${scaledHeight}px` }}
+            >
+                <div
+                    className="dnss-demo-scaler"
+                    style={{
+                        width: `${virtual.width}px`,
+                        height: `${virtual.height}px`,
+                        transform: `scale(${scale})`,
+                    }}
+                >
+                    <App
+                        key={`dnss-demo-${demoKey}`}
+                        embedded
+                        theme={theme}
+                        onThemeChange={handleAppThemeChange}
+                        lang={demoLang}
+                        onLangChange={setDemoLang}
+                        accent={accent}
+                        onAccentChange={setAccent}
+                    />
+                </div>
             </div>
 
             <div className="lp-demo-footer">

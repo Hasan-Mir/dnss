@@ -38,21 +38,21 @@ function createInitialState(): MockState {
                 {
                     id: 'office-dns',
                     name: 'Office DNS',
-                    primary: '1.1.1.1',
-                    alternative: '1.0.0.1',
+                    primary: '10.10.0.53',
+                    alternative: '10.10.0.54',
                 },
             ],
         },
         status: {
-            static_servers: ['1.1.1.1', '1.0.0.1'],
-            in_use: ['1.1.1.1', '1.0.0.1'],
+            static_servers: ['10.10.0.53', '10.10.0.54'],
+            in_use: ['10.10.0.53', '10.10.0.54'],
         },
         adapters: [
             {
                 name: 'Wi-Fi',
                 kind: 'Intel(R) Wi-Fi 6 AX200 160MHz',
                 is_default: true,
-                dns_servers: ['1.1.1.1', '1.0.0.1'],
+                dns_servers: ['10.10.0.53', '10.10.0.54'],
                 dns_static: true,
             },
             {
@@ -398,6 +398,24 @@ export function installMockTauriIpc(): void {
     let nextListenerId = 0;
     const callbacks = new Map<number, (payload: unknown) => void>();
     let nextCallbackId = 1;
+
+    (
+        window as unknown as {
+            __TAURI_EVENT_PLUGIN_INTERNALS__?: {
+                unregisterListener: (event: string, eventId: number) => void;
+            };
+            __TAURI_INTERNALS__: {
+                invoke: typeof invoke;
+                transformCallback: (
+                    cb?: (payload: unknown) => void,
+                    once?: boolean
+                ) => number;
+                unregisterCallback: (id: number) => void;
+            };
+        }
+    ).__TAURI_EVENT_PLUGIN_INTERNALS__ = {
+        unregisterListener: () => {},
+    };
 
     (
         window as unknown as {

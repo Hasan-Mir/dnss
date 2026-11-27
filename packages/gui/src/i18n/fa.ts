@@ -171,7 +171,7 @@ const fa: Dict = {
         'بلافاصله اعمال می‌شود و نیازی به راه‌اندازی مجدد نیست.',
     'settings.backup': 'پشتیبان‌گیری و انتقال (settings.json)',
     'settings.backupDesc':
-        'خروجی، ورودی یا ویرایش مستقیم فایل یکپارچهٔ settings.json (مشترک بین GUI و CLI در ~/.dnss/settings.json) شامل تنظیمات ظاهری و DNSهای ذخیره‌شده.',
+        'خروجی، ورودی یا ویرایش مستقیم فایل یکپارچه settings.json (مشترک بین GUI و CLI در ~/.dnss/settings.json) شامل تنظیمات ظاهری و سرورهای DNS ذخیره‌شده.',
     'settings.exportJson': 'خروجی JSON',
     'settings.importJson': 'ورودی JSON',
     'settings.editJson': 'باز کردن settings.json',

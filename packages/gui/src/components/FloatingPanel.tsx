@@ -30,13 +30,23 @@ function computePosition(
 ): Position | null {
     const rawAnchor = anchor.getBoundingClientRect();
     const cRect = container ? container.getBoundingClientRect() : null;
+    const scaleX =
+        container && container.clientWidth > 0 && cRect && cRect.width > 0
+            ? cRect.width / container.clientWidth
+            : 1;
+    const scaleY =
+        container && container.clientHeight > 0 && cRect && cRect.height > 0
+            ? cRect.height / container.clientHeight
+            : 1;
+    const safeScaleX = scaleX > 0.05 ? scaleX : 1;
+    const safeScaleY = scaleY > 0.05 ? scaleY : 1;
     const a = cRect
         ? {
-              top: rawAnchor.top - cRect.top,
-              bottom: rawAnchor.bottom - cRect.top,
-              left: rawAnchor.left - cRect.left,
-              right: rawAnchor.right - cRect.left,
-              width: rawAnchor.width,
+              top: (rawAnchor.top - cRect.top) / safeScaleY,
+              bottom: (rawAnchor.bottom - cRect.top) / safeScaleY,
+              left: (rawAnchor.left - cRect.left) / safeScaleX,
+              right: (rawAnchor.right - cRect.left) / safeScaleX,
+              width: rawAnchor.width / safeScaleX,
           }
         : rawAnchor;
     const vw = container ? container.clientWidth : window.innerWidth;

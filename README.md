@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="docs/src/assets/images/icon-128.png" width="140" alt="DNSS — DNS Switcher logo" />
+  <img src="packages/gui/src-tauri/icons/icon.png" width="180" alt="DNSS — DNS Switcher logo" />
 </div>
 
 # DNSS — DNS Switcher

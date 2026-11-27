@@ -158,11 +158,12 @@ function normalizeServerList(configs: DnsConfig[]): DnsConfig[] {
         } else {
             id = slugifyServerId(trimmedName, usedIds);
         }
+        const alt = config.alternative?.trim();
         return {
             id,
             name: trimmedName,
             primary: config.primary.trim(),
-            alternative: config.alternative?.trim() || undefined,
+            ...(alt ? { alternative: alt } : {}),
         };
     });
 }
