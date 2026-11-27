@@ -1,1063 +1,570 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import App from '@gui/App';
-
-// Asset Imports
+import React, { useEffect, useRef, useState } from 'react';
 import appIcon from './assets/images/icon-128.png';
-import iconWindows from './assets/icons/brand-windows.svg';
-import iconApple from './assets/icons/brand-apple.svg';
-import iconLinux from './assets/icons/brand-linux.svg';
-import iconNpm from './assets/icons/brand-npm.svg';
-import iconGithub from './assets/icons/brand-github.svg';
-import iconDownload from './assets/icons/download.svg';
-import iconCopy from './assets/icons/copy.svg';
-import iconCheck from './assets/icons/check.svg';
-import iconBolt from './assets/icons/bolt.svg';
-import iconGauge from './assets/icons/gauge.svg';
-import iconShieldLock from './assets/icons/shield-lock.svg';
+import { COPY, type LandingLang } from './copy';
+import { DemoStage } from './DemoStage';
 
-const PRESETS_LIST = [
-    { name: 'Cloudflare', ip: '1.1.1.1' },
-    { name: 'Google', ip: '8.8.8.8', active: true },
-    { name: 'AdGuard', ip: '94.140.14.14' },
-    { name: 'Quad9', ip: '9.9.9.9' },
-    { name: 'OpenDNS', ip: '208.67.222.222' },
-    { name: 'Mullvad', ip: '194.242.2.2' },
-    { name: 'Shecan', ip: '178.22.122.100' },
-    { name: 'Electro', ip: '78.157.42.100' },
-    { name: 'Radar Game', ip: '10.202.10.10' },
-    { name: 'Begzar', ip: '185.55.226.26' },
-];
+const RELEASES_URL = 'https://github.com/Hasan-Mir/dnss/releases/latest';
+const REPO_URL = 'https://github.com/Hasan-Mir/dnss';
+const NPM_CMD = 'npm install -g @seymi/dnss-cli';
+const NAV_SECTIONS = ['demo', 'features', 'cli', 'download'] as const;
 
-function SvgMaskIcon({
-    src,
-    className = 'size-6',
-    color = '#34d399',
-}: {
-    src: string;
-    className?: string;
-    color?: string;
-}) {
+const SAMPLE_SETTINGS_JSON = `{
+  "dnss.schemaVersion": 1,
+  "appearance.theme": "dark",
+  "appearance.accent": "#10b981",
+  "benchmark.target": "https://www.cloudflare.com",
+  "dns.servers": [
+    {
+      "id": "office-dns",
+      "name": "Office DNS",
+      "primary": "1.1.1.1",
+      "alternative": "1.0.0.1"
+    }
+  ]
+}`;
+
+function renderHeroTitle(title: string, highlight: string) {
+    const idx = title.indexOf(highlight);
+    if (idx < 0) return title;
     return (
-        <span
-            className={`inline-block ${className}`}
-            style={{
-                backgroundColor: color,
-                maskImage: `url("${src}")`,
-                maskRepeat: 'no-repeat',
-                maskPosition: 'center',
-                maskSize: 'contain',
-                WebkitMaskImage: `url("${src}")`,
-                WebkitMaskRepeat: 'no-repeat',
-                WebkitMaskPosition: 'center',
-                WebkitMaskSize: 'contain',
-            }}
-        />
+        <>
+            {title.slice(0, idx)}
+            <span className="lp-grad-word" dir="ltr">
+                {highlight}
+            </span>
+            {title.slice(idx + highlight.length)}
+        </>
     );
 }
 
 export default function LandingPage() {
-    const [landingLang, setLandingLang] = useState<'en' | 'fa'>(() => {
-        const stored = localStorage.getItem('dnss.lang');
-        if (stored === 'en' || stored === 'fa') {
-            return stored;
+    const [lang, setLang] = useState<LandingLang>(() => {
+        try {
+            return localStorage.getItem('dnss_lp_lang') === 'fa' ? 'fa' : 'en';
+        } catch {
+            return 'en';
         }
-        return 'en';
     });
-    const [landingTheme, setLandingTheme] = useState<'dark' | 'light'>(() => {
-        const stored = localStorage.getItem('dnss.theme');
-        if (stored === 'light' || stored === 'dark') {
-            return stored;
-        }
-        return 'dark';
+    const [activeSection, setActiveSection] = useState<string>('demo');
+    const [cliTab, setCliTab] = useState('switch');
+    const [serviceMode, setServiceMode] = useState<'pipe' | 'direct'>('pipe');
+    const [copiedInstall, setCopiedInstall] = useState(false);
+    const [copiedCli, setCopiedCli] = useState(false);
+    const [copiedDlCli, setCopiedDlCli] = useState(false);
+    const copyTimersRef = useRef<
+        Record<'install' | 'cli' | 'dl-cli', number | null>
+    >({
+        install: null,
+        cli: null,
+        'dl-cli': null,
     });
-    const [copied, setCopied] = useState(false);
-
-    const toggleLandingLang = () => {
-        const next = landingLang === 'en' ? 'fa' : 'en';
-        setLandingLang(next);
-        localStorage.setItem('dnss.lang', next);
-        document.documentElement.lang = next;
-        document.documentElement.dir = next === 'fa' ? 'rtl' : 'ltr';
-    };
-
-    const toggleLandingTheme = () => {
-        const next = landingTheme === 'dark' ? 'light' : 'dark';
-        setLandingTheme(next);
-        localStorage.setItem('dnss.theme', next);
-        document.documentElement.setAttribute('data-landing-theme', next);
-        document.documentElement.setAttribute('data-theme', next);
-    };
-
-    const handleAppThemeChange = useCallback(
-        (th: 'light' | 'dark' | 'system') => {
-            const resolved =
-                th === 'system'
-                    ? window.matchMedia('(prefers-color-scheme: dark)').matches
-                        ? 'dark'
-                        : 'light'
-                    : th;
-            setLandingTheme(resolved);
-            localStorage.setItem('dnss.theme', resolved);
-            document.documentElement.setAttribute(
-                'data-landing-theme',
-                resolved
-            );
-            document.documentElement.setAttribute('data-theme', resolved);
-        },
-        []
-    );
-
-    const handleAppLangChange = useCallback((l: 'en' | 'fa') => {
-        setLandingLang(l);
-        localStorage.setItem('dnss.lang', l);
-        document.documentElement.lang = l;
-        document.documentElement.dir = l === 'fa' ? 'rtl' : 'ltr';
-    }, []);
-
-    useEffect(() => {
-        localStorage.setItem('dnss.lang', landingLang);
-        localStorage.setItem('dnss.theme', landingTheme);
-        document.documentElement.lang = landingLang;
-        document.documentElement.dir = landingLang === 'fa' ? 'rtl' : 'ltr';
-        document.documentElement.setAttribute(
-            'data-landing-theme',
-            landingTheme
-        );
-        document.documentElement.setAttribute('data-theme', landingTheme);
-    }, [landingLang, landingTheme]);
-
-    const copyTimerRef = useRef<number | null>(null);
 
     useEffect(() => {
         return () => {
-            if (copyTimerRef.current !== null) {
-                window.clearTimeout(copyTimerRef.current);
+            for (const key of ['install', 'cli', 'dl-cli'] as const) {
+                const id = copyTimersRef.current[key];
+                if (id !== null) {
+                    window.clearTimeout(id);
+                    copyTimersRef.current[key] = null;
+                }
             }
         };
     }, []);
 
-    const handleCopyCli = async () => {
-        try {
-            if (!navigator.clipboard?.writeText) {
+    useEffect(() => {
+        const updateActive = () => {
+            const atBottom =
+                window.innerHeight + window.scrollY >=
+                document.documentElement.scrollHeight - 4;
+            if (atBottom) {
+                setActiveSection(NAV_SECTIONS[NAV_SECTIONS.length - 1]);
                 return;
             }
-            await navigator.clipboard.writeText('npx @seymi/dnss-cli');
-            setCopied(true);
-            if (copyTimerRef.current !== null) {
-                window.clearTimeout(copyTimerRef.current);
+            const probe = window.scrollY + 180;
+            let current: string = 'demo';
+            for (const id of NAV_SECTIONS) {
+                const el = document.getElementById(id);
+                if (!el) continue;
+                const top = el.getBoundingClientRect().top + window.scrollY;
+                if (top <= probe) {
+                    current = id;
+                }
             }
-            copyTimerRef.current = window.setTimeout(() => {
-                copyTimerRef.current = null;
-                setCopied(false);
-            }, 2000);
+            setActiveSection(current);
+        };
+        updateActive();
+        window.addEventListener('scroll', updateActive, { passive: true });
+        window.addEventListener('resize', updateActive, { passive: true });
+        return () => {
+            window.removeEventListener('scroll', updateActive);
+            window.removeEventListener('resize', updateActive);
+        };
+    }, []);
+
+    const copy = COPY[lang];
+    const dir = lang === 'fa' ? 'rtl' : 'ltr';
+
+    useEffect(() => {
+        document.documentElement.lang = lang;
+    }, [lang]);
+
+    const toggleLang = () => {
+        const next: LandingLang = lang === 'en' ? 'fa' : 'en';
+        setLang(next);
+        try {
+            localStorage.setItem('dnss_lp_lang', next);
         } catch {
-            setCopied(false);
+            // ignore
         }
     };
 
-    const isFa = landingLang === 'fa';
-    const isLight = landingTheme === 'light';
+    const copyToClipboard = async (
+        text: string,
+        which: 'install' | 'cli' | 'dl-cli'
+    ) => {
+        try {
+            await navigator.clipboard.writeText(text);
+        } catch {
+            return;
+        }
+        const prev = copyTimersRef.current[which];
+        if (prev !== null) {
+            window.clearTimeout(prev);
+        }
+        const setFlag =
+            which === 'install'
+                ? setCopiedInstall
+                : which === 'dl-cli'
+                  ? setCopiedDlCli
+                  : setCopiedCli;
+        setFlag(true);
+        copyTimersRef.current[which] = window.setTimeout(() => {
+            copyTimersRef.current[which] = null;
+            setFlag(false);
+        }, 1600);
+    };
+
+    const activeCli =
+        copy.cli.tabs.find((t) => t.id === cliTab) ?? copy.cli.tabs[0];
 
     return (
-        <div
-            className={`landing-page-root min-h-screen transition-colors duration-200 ${
-                isFa ? 'font-vazirmatn' : 'font-space-grotesk'
-            }`}
-            style={{ backgroundColor: 'var(--lp-bg)' }}
-        >
-            {/* Header / Navbar */}
-            <header
-                className="sticky top-0 z-40 border-b backdrop-blur-md transition-colors duration-200"
-                style={{
-                    borderColor: 'var(--lp-border)',
-                    backgroundColor: isLight
-                        ? 'rgba(255, 255, 255, 0.88)'
-                        : 'rgba(11, 15, 25, 0.88)',
-                }}
-            >
-                <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-3.5">
-                    {/* Brand */}
-                    <div className="flex items-center gap-3">
-                        <img
-                            src={appIcon}
-                            alt="DNSS"
-                            className="size-8 rounded-lg select-none"
-                        />
-                        <span
-                            className="text-xl font-bold tracking-tight"
-                            style={{ color: 'var(--lp-text-title)' }}
-                        >
-                            DNSS
-                        </span>
-                    </div>
+        <div className="lp-page" dir={dir} data-lp-lang={lang}>
+            {/* ───────── Sticky Workbench Navbar ───────── */}
+            <header className="lp-nav-wrap">
+                <div className="lp-container lp-nav">
+                    <a href="#top" className="lp-brand">
+                        <img src={appIcon} alt="DNSS" />
+                        <span>DNSS</span>
+                        <span className="lp-ver">v1.0.0</span>
+                    </a>
 
-                    {/* Nav Links */}
-                    <nav className="hidden items-center gap-2 text-sm font-medium opacity-80 md:flex">
+                    <nav className="lp-nav-links" aria-label="Main navigation">
                         <a
-                            href="#features"
-                            className="rounded-full px-4 py-1.5 transition-all duration-150 hover:text-[#34d399] hover:bg-[#34d399]/10 cursor-pointer"
+                            href="#demo"
+                            className={activeSection === 'demo' ? 'active' : ''}
                         >
-                            {isFa ? 'قابلیت‌ها' : 'Features'}
+                            {copy.nav.demo}
                         </a>
                         <a
-                            href="#download"
-                            className="rounded-full px-4 py-1.5 transition-all duration-150 hover:text-[#34d399] hover:bg-[#34d399]/10 cursor-pointer"
+                            href="#features"
+                            className={
+                                activeSection === 'features' ? 'active' : ''
+                            }
                         >
-                            {isFa ? 'دانلود' : 'Download'}
+                            {copy.nav.features}
                         </a>
                         <a
                             href="#cli"
-                            className="rounded-full px-4 py-1.5 transition-all duration-150 hover:text-[#34d399] hover:bg-[#34d399]/10 cursor-pointer"
+                            className={activeSection === 'cli' ? 'active' : ''}
                         >
-                            {isFa ? 'ترمینال' : 'CLI'}
+                            {copy.nav.cli}
+                        </a>
+                        <a
+                            href="#download"
+                            className={
+                                activeSection === 'download' ? 'active' : ''
+                            }
+                        >
+                            {copy.nav.download}
                         </a>
                     </nav>
 
-                    {/* Top Action Controls */}
-                    <div className="flex items-center gap-2.5">
-                        {/* Language Switcher Pill */}
+                    <div className="lp-nav-actions">
                         <button
                             type="button"
-                            onClick={toggleLandingLang}
-                            className={`flex h-[34px] cursor-pointer items-center justify-center rounded-full border border-[var(--lp-border)] px-4 text-xs font-semibold shadow-xs transition-all duration-150 hover:border-[#059669] hover:text-[#059669] active:scale-95 ${
-                                isFa ? 'font-space-grotesk' : 'font-vazirmatn'
-                            }`}
-                            style={{
-                                backgroundColor: 'var(--lp-card)',
-                                color: 'var(--lp-text-title)',
-                            }}
+                            className="lp-ghost-btn"
+                            onClick={toggleLang}
                         >
-                            {isFa ? 'English' : 'فارسی'}
+                            {copy.nav.langToggle}
                         </button>
-
-                        {/* Theme Toggle Button */}
-                        <button
-                            type="button"
-                            onClick={toggleLandingTheme}
-                            className="flex size-[34px] h-[34px] w-[34px] cursor-pointer items-center justify-center rounded-full border border-[var(--lp-border)] shadow-xs transition-all duration-150 hover:border-[#059669] active:scale-95"
-                            style={{ backgroundColor: 'var(--lp-card)' }}
-                            title="Toggle theme"
-                        >
-                            {landingTheme === 'dark' ? (
-                                /* Moon Icon when Dark mode is active (matching the app) */
-                                <svg
-                                    className="size-4 text-slate-300 transition-colors"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    viewBox="0 0 24 24"
-                                >
-                                    <path
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        strokeWidth="2"
-                                        d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"
-                                    />
-                                </svg>
-                            ) : (
-                                /* Sun Icon when Light mode is active (matching the app) */
-                                <svg
-                                    className="size-4 transition-colors"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    viewBox="0 0 24 24"
-                                >
-                                    <circle
-                                        cx="12"
-                                        cy="12"
-                                        r="4"
-                                        strokeWidth="2"
-                                    />
-                                    <path
-                                        strokeLinecap="round"
-                                        strokeWidth="2"
-                                        d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41m14.14-14.14l-1.41 1.41"
-                                    />
-                                </svg>
-                            )}
-                        </button>
-
-                        {/* GitHub Button */}
                         <a
-                            href="https://github.com/Hasan-Mir/dnss"
+                            href={REPO_URL}
                             target="_blank"
                             rel="noreferrer"
-                            className="flex h-[34px] cursor-pointer items-center gap-2 rounded-full border border-[var(--lp-border)] px-4 text-xs font-semibold shadow-xs transition-all duration-150 hover:border-[#059669] hover:text-[#059669] active:scale-95"
-                            style={{
-                                backgroundColor: 'var(--lp-card)',
-                                color: 'var(--lp-text-title)',
-                            }}
+                            className="lp-ghost-btn lp-gh-btn"
+                            aria-label="GitHub"
                         >
-                            <SvgMaskIcon
-                                src={iconGithub}
-                                className="size-4"
-                                color="currentColor"
-                            />
+                            <svg
+                                width="16"
+                                height="16"
+                                viewBox="0 0 24 24"
+                                fill="currentColor"
+                                aria-hidden="true"
+                            >
+                                <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.57.11.78-.25.78-.55 0-.27-.01-1.16-.02-2.11-3.2.7-3.88-1.36-3.88-1.36-.52-1.33-1.28-1.68-1.28-1.68-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.76 2.7 1.25 3.36.96.1-.75.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.68 0-1.25.45-2.28 1.19-3.08-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 015.78 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.8 1.19 1.83 1.19 3.08 0 4.41-2.69 5.38-5.26 5.67.42.36.79 1.06.79 2.15 0 1.55-.01 2.8-.01 3.18 0 .31.21.67.79.55A11.51 11.51 0 0023.5 12C23.5 5.65 18.35.5 12 .5z" />
+                            </svg>
                             <span>GitHub</span>
+                        </a>
+                        <a
+                            href={RELEASES_URL}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="lp-primary-btn small"
+                        >
+                            {copy.nav.download}
                         </a>
                     </div>
                 </div>
             </header>
 
-            {/* HERO SECTION */}
-            <section className="mx-auto max-w-7xl px-6 pt-12 pb-20 lg:pt-16">
-                <div className="grid grid-cols-1 items-center gap-12 lg:grid-cols-12 lg:gap-8">
-                    {/* Left Column: Ambient Aura placed directly behind text */}
-                    <div className="relative text-center lg:col-span-5 lg:text-start">
-                        {/* 1. Teal / Emerald Ambient Aura */}
-                        <div
-                            aria-hidden="true"
-                            className="pointer-events-none absolute -top-12 z-0 h-[380px] w-[380px] rounded-full transition-opacity duration-300"
-                            style={{
-                                [isFa ? 'right' : 'left']: '-2rem',
-                                backgroundColor: '#10b981',
-                                filter: 'blur(95px)',
-                                WebkitFilter: 'blur(95px)',
-                                opacity: isLight ? 0.28 : 0.44,
-                            }}
-                        />
-
-                        {/* 2. Royal Blue Ambient Aura */}
-                        <div
-                            aria-hidden="true"
-                            className="pointer-events-none absolute top-28 z-0 h-[360px] w-[360px] rounded-full transition-opacity duration-300"
-                            style={{
-                                [isFa ? 'right' : 'left']: '3rem',
-                                backgroundColor: '#2563eb',
-                                filter: 'blur(95px)',
-                                WebkitFilter: 'blur(95px)',
-                                opacity: isLight ? 0.22 : 0.36,
-                            }}
-                        />
-
-                        {/* Text and Actions */}
-                        <div className="relative z-10">
-                            {/* Pill Badge */}
-                            <div
-                                className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-semibold tracking-wider"
-                                style={{
-                                    backgroundColor: 'var(--lp-badge-bg)',
-                                    borderColor: 'var(--lp-badge-border)',
-                                    color: 'var(--lp-badge-text)',
-                                }}
-                            >
-                                <span>
-                                    {isFa
-                                        ? 'رایگان و متن‌باز'
-                                        : 'FREE & OPEN SOURCE'}
-                                </span>
+            <main id="top">
+                {/* ───────── Hero + Live Synced Interactive App Demo ───────── */}
+                <section className="lp-hero">
+                    <div className="lp-container lp-hero-grid">
+                        <div className="lp-hero-copy">
+                            <div className="lp-hero-pill">
+                                <span
+                                    className="lp-pill-dot"
+                                    aria-hidden="true"
+                                />
+                                <span>{copy.hero.badge}</span>
                             </div>
 
-                            {/* Heading */}
-                            <h1
-                                className="mt-5 text-4xl font-black tracking-tight sm:text-5xl lg:text-6xl"
-                                style={{ color: 'var(--lp-text-title)' }}
-                            >
-                                {isFa ? (
-                                    <>
-                                        <span>
-                                            تغییر <bdi>DNS</bdi> شما
-                                        </span>
-                                        <br />
-                                        <span className="text-[#34d399]">
-                                            تنها با یک کلیک.
-                                        </span>
-                                    </>
-                                ) : (
-                                    <>
-                                        <span>Switch your DNS</span>
-                                        <br />
-                                        <span className="text-[#34d399]">
-                                            in one click.
-                                        </span>
-                                    </>
+                            <h1>
+                                {renderHeroTitle(
+                                    copy.hero.title,
+                                    copy.hero.highlight
                                 )}
                             </h1>
+                            <p className="lp-hero-sub">{copy.hero.subtitle}</p>
 
-                            {/* Subtitle */}
-                            <p
-                                className="mt-5 text-base leading-relaxed sm:text-lg"
-                                style={{ color: 'var(--lp-text-body)' }}
-                            >
-                                {isFa
-                                    ? 'برنامهٔ دسکتاپ رایگان و متن‌باز برای جابه‌جایی میان کلودفلر، گوگل، ادگارد، شکن و غیره. بدون دستورات netsh و جست‌وجو در تنظیمات.'
-                                    : 'A free, open-source desktop app that switches between Cloudflare, Google, AdGuard, Shecan, and more. No netsh, no settings digging.'}
-                            </p>
-
-                            {/* Action Buttons */}
-                            <div className="mt-8 flex flex-wrap justify-center gap-3.5 lg:justify-start">
-                                {/* Download Button */}
+                            <div className="lp-hero-ctas">
                                 <a
-                                    href="https://github.com/Hasan-Mir/dnss/releases"
+                                    href={RELEASES_URL}
                                     target="_blank"
                                     rel="noreferrer"
-                                    className="inline-flex cursor-pointer items-center gap-2.5 rounded-full bg-[#34d399] px-6 py-2.5 text-sm font-bold text-[#04120c] shadow-md shadow-[#34d399]/25 transition-all duration-200 hover:bg-[#4ade80] hover:shadow-lg hover:shadow-[#34d399]/35 hover:-translate-y-0.5 active:translate-y-0 active:scale-95"
+                                    className="lp-primary-btn"
                                 >
-                                    <SvgMaskIcon
-                                        src={iconDownload}
-                                        className="size-4"
-                                        color="#04120c"
-                                    />
-                                    <span>
-                                        {isFa ? 'دانلود مستقیم' : 'Download'}
-                                    </span>
+                                    {copy.hero.ctaPrimary}
                                 </a>
-
-                                {/* View on GitHub Button: no hover border color change */}
                                 <a
-                                    href="https://github.com/Hasan-Mir/dnss"
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="inline-flex cursor-pointer items-center gap-2.5 rounded-full border border-[var(--lp-border)] px-5 py-2.5 text-sm font-semibold shadow-xs transition-all duration-200 hover:-translate-y-0.5 active:translate-y-0 active:scale-95"
-                                    style={{
-                                        backgroundColor: 'var(--lp-card)',
-                                        color: 'var(--lp-text-title)',
-                                    }}
+                                    href="#features"
+                                    className="lp-secondary-btn"
                                 >
-                                    <SvgMaskIcon
-                                        src={iconGithub}
-                                        className="size-4"
-                                        color="currentColor"
-                                    />
-                                    <span>
-                                        {isFa
-                                            ? 'مشاهده در گیت‌هاب'
-                                            : 'View on GitHub'}
-                                    </span>
+                                    {copy.hero.ctaSecondary}
                                 </a>
                             </div>
-                        </div>
-                    </div>
 
-                    {/* Right Column: Desktop Mockup */}
-                    <div className="lg:col-span-7">
-                        <div
-                            className="mx-auto w-full max-w-[640px] overflow-hidden rounded-2xl border border-[var(--lp-border)] shadow-2xl transition-colors duration-200"
-                            style={{
-                                backgroundColor: 'var(--lp-card)',
-                            }}
-                        >
-                            {/* Window Chrome */}
-                            <div
-                                dir="ltr"
-                                className="flex select-none items-center justify-between border-b px-4 py-2.5 transition-colors duration-200"
-                                style={{
-                                    borderColor: 'var(--lp-border)',
-                                    backgroundColor: 'var(--lp-card-header)',
-                                }}
-                            >
-                                <div className="flex items-center gap-2">
-                                    <div className="size-3 rounded-full bg-[#ff5f56]" />
-                                    <div className="size-3 rounded-full bg-[#ffbd2e]" />
-                                    <div className="size-3 rounded-full bg-[#27c93f]" />
-                                </div>
-                                <div className="font-mono text-xs font-semibold opacity-60">
-                                    DNSS
-                                </div>
-                                <div className="w-12 text-end">
-                                    <span
-                                        className="rounded px-1.5 py-0.5 text-[10px] font-bold"
-                                        style={{
-                                            backgroundColor:
-                                                'var(--lp-badge-bg)',
-                                            color: 'var(--lp-badge-text)',
-                                        }}
-                                    >
-                                        LIVE
-                                    </span>
-                                </div>
-                            </div>
-
-                            {/* Rectangular App Shell: Controlled without unmounting key */}
-                            <div
-                                id="mockup-app-container"
-                                className="mockup-app-container h-[420px] w-full overflow-hidden text-start"
-                            >
-                                <App
-                                    theme={landingTheme}
-                                    onThemeChange={handleAppThemeChange}
-                                    lang={landingLang}
-                                    onLangChange={handleAppLangChange}
-                                />
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            {/* SECTION 2: Platform Downloads with Subtle Default Border & Glowing Hover */}
-            <section
-                id="download"
-                className="border-t py-16 transition-colors duration-200"
-                style={{
-                    borderColor: 'var(--lp-border)',
-                    backgroundColor: 'var(--lp-bg-alt)',
-                }}
-            >
-                <div className="mx-auto max-w-7xl px-6">
-                    <div>
-                        <h2
-                            className="text-2xl font-bold tracking-tight sm:text-3xl"
-                            style={{ color: 'var(--lp-text-title)' }}
-                        >
-                            {isFa
-                                ? 'دریافت DNSS برای سیستم‌عامل شما'
-                                : 'Get DNSS for your platform'}
-                        </h2>
-                        <p className="mt-2 text-sm opacity-70">
-                            {isFa
-                                ? 'برای تمامی پلتفرم‌ها بیلد رسمی خودکار در گیت‌هاب منتشر می‌شود.'
-                                : 'Every release ships installers for all three systems, built automatically on GitHub.'}
-                        </p>
-                    </div>
-
-                    <div className="mt-8 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-                        {/* Windows Card */}
-                        <a
-                            href="https://github.com/Hasan-Mir/dnss/releases"
-                            target="_blank"
-                            rel="noreferrer"
-                            className="group flex cursor-pointer flex-col rounded-2xl border border-[var(--lp-border)] bg-[var(--lp-card)] p-7 sm:p-8 shadow-xs transition-all duration-200 hover:border-[#34d399] hover:shadow-[0_0_25px_rgba(52,211,153,0.25)] hover:-translate-y-1 active:translate-y-0"
-                        >
-                            <div className="mb-4">
-                                <SvgMaskIcon
-                                    src={iconWindows}
-                                    className="size-7"
-                                    color="#34d399"
-                                />
-                            </div>
-                            <span
-                                className="text-base font-bold transition-colors group-hover:text-[#34d399]"
-                                style={{ color: 'var(--lp-text-title)' }}
-                            >
-                                Windows
-                            </span>
-                            <span
-                                className="mt-1.5 text-xs opacity-70"
-                                dir={isFa ? 'rtl' : 'ltr'}
-                            >
-                                {isFa
-                                    ? 'نصب‌کننده EXE (یک بار UAC، بدون درخواست مجدد)'
-                                    : 'EXE installer (one-time UAC, background service)'}
-                            </span>
-                        </a>
-
-                        {/* macOS Card */}
-                        <a
-                            href="https://github.com/Hasan-Mir/dnss/releases"
-                            target="_blank"
-                            rel="noreferrer"
-                            className="group flex cursor-pointer flex-col rounded-2xl border border-[var(--lp-border)] bg-[var(--lp-card)] p-7 sm:p-8 shadow-xs transition-all duration-200 hover:border-[#34d399] hover:shadow-[0_0_25px_rgba(52,211,153,0.25)] hover:-translate-y-1 active:translate-y-0"
-                        >
-                            <div className="mb-4">
-                                <SvgMaskIcon
-                                    src={iconApple}
-                                    className="size-7"
-                                    color="#34d399"
-                                />
-                            </div>
-                            <span
-                                className="text-base font-bold transition-colors group-hover:text-[#34d399]"
-                                style={{ color: 'var(--lp-text-title)' }}
-                            >
-                                macOS
-                            </span>
-                            <span
-                                className="mt-1.5 text-xs opacity-70"
-                                dir={isFa ? 'rtl' : 'ltr'}
-                            >
-                                {isFa
-                                    ? 'فایل DMG برای اینتل و اپل سیلیکون'
-                                    : 'DMGs for Intel and Apple Silicon'}
-                            </span>
-                        </a>
-
-                        {/* Linux Card */}
-                        <a
-                            href="https://github.com/Hasan-Mir/dnss/releases"
-                            target="_blank"
-                            rel="noreferrer"
-                            className="group flex cursor-pointer flex-col rounded-2xl border border-[var(--lp-border)] bg-[var(--lp-card)] p-7 sm:p-8 shadow-xs transition-all duration-200 hover:border-[#34d399] hover:shadow-[0_0_25px_rgba(52,211,153,0.25)] hover:-translate-y-1 active:translate-y-0"
-                        >
-                            <div className="mb-4">
-                                <SvgMaskIcon
-                                    src={iconLinux}
-                                    className="size-7"
-                                    color="#34d399"
-                                />
-                            </div>
-                            <span
-                                className="text-base font-bold transition-colors group-hover:text-[#34d399]"
-                                style={{ color: 'var(--lp-text-title)' }}
-                            >
-                                Linux
-                            </span>
-                            <span
-                                className="mt-1.5 text-xs opacity-70"
-                                dir={isFa ? 'rtl' : 'ltr'}
-                            >
-                                {isFa
-                                    ? 'پکیج‌های AppImage، DEB و RPM'
-                                    : 'AppImage, DEB and RPM'}
-                            </span>
-                        </a>
-
-                        {/* CLI Card */}
-                        <a
-                            href="#cli"
-                            className="group flex cursor-pointer flex-col rounded-2xl border border-[var(--lp-border)] bg-[var(--lp-card)] p-7 sm:p-8 shadow-xs transition-all duration-200 hover:border-[#34d399] hover:shadow-[0_0_25px_rgba(52,211,153,0.25)] hover:-translate-y-1 active:translate-y-0"
-                        >
-                            <div className="mb-4">
-                                <SvgMaskIcon
-                                    src={iconNpm}
-                                    className="size-7"
-                                    color="#34d399"
-                                />
-                            </div>
-                            <span
-                                className="text-base font-bold transition-colors group-hover:text-[#34d399]"
-                                style={{ color: 'var(--lp-text-title)' }}
-                            >
-                                CLI
-                            </span>
-                            <span
-                                className="mt-1.5 text-xs opacity-70"
-                                dir={isFa ? 'rtl' : 'ltr'}
-                            >
-                                {isFa ? (
-                                    <span>
-                                        اجرا با npx؛ نیازمند <bdi>Node 18+</bdi>
-                                    </span>
-                                ) : (
-                                    'Runs with npx; Node 18+'
-                                )}
-                            </span>
-                        </a>
-                    </div>
-                </div>
-            </section>
-
-            {/* SECTION 3: Bento Grid */}
-            <section
-                id="features"
-                className="py-20 transition-colors duration-200"
-            >
-                <div className="mx-auto max-w-7xl px-6">
-                    <div>
-                        <h2
-                            className="text-2xl font-bold tracking-tight sm:text-3xl"
-                            style={{ color: 'var(--lp-text-title)' }}
-                        >
-                            {isFa
-                                ? 'تمام آنچه از یک تغییردهندهٔ DNS انتظار دارید'
-                                : 'Everything a DNS switcher needs'}
-                        </h2>
-                        <p className="mt-2 text-sm opacity-70">
-                            {isFa
-                                ? 'برنامه دسکتاپ و خط فرمان هر دو از یک هسته مشترک استفاده می‌کنند.'
-                                : 'The app and the CLI share one core, so what you see here is what you get in the terminal.'}
-                        </p>
-                    </div>
-
-                    <div className="mt-10 grid grid-cols-1 gap-5 md:grid-cols-12">
-                        {/* Bento 1: Presets */}
-                        <div
-                            className="rounded-2xl border border-[var(--lp-border)] p-6 shadow-xs md:col-span-8"
-                            style={{
-                                backgroundColor: 'var(--lp-card)',
-                            }}
-                        >
-                            <h3
-                                className="text-lg font-bold"
-                                style={{ color: 'var(--lp-text-title)' }}
-                            >
-                                {isFa
-                                    ? '۱۷ سرور آماده داخلی'
-                                    : '17 presets built in'}
-                            </h3>
-                            <p className="mt-1 text-sm opacity-70">
-                                {isFa
-                                    ? 'سرورهای محبوب جهانی در کنار گزینه‌های تحریم‌شکن ایرانی مانند شکن، الکترو و رادار بازی.'
-                                    : 'Pick a provider and hit apply — global resolvers alongside Iranian services like Shecan, Electro and Radar Game.'}
-                            </p>
-                            <div className="mt-5 flex flex-wrap gap-2">
-                                {PRESETS_LIST.map((preset) => (
-                                    <div
-                                        key={preset.name}
-                                        style={{ lineHeight: 1 }}
-                                        className={`flex items-center gap-2 rounded-lg border px-2.5 py-2 text-xs font-mono transition-all ${
-                                            preset.active
-                                                ? isLight
-                                                    ? 'border-[#a7f3d0] bg-[#ecfdf5] text-[#059669] font-bold'
-                                                    : 'border-[#34d399]/40 bg-[#34d399]/15 text-[#34d399]'
-                                                : isLight
-                                                  ? 'border-[#e2e8f0] bg-[#f8fafc] text-slate-700'
-                                                  : 'border-slate-800 bg-slate-900/40 text-slate-300'
-                                        }`}
-                                    >
-                                        <span className="font-sans font-semibold">
-                                            {preset.name}
-                                        </span>
-                                        <span className="opacity-60">
-                                            {preset.ip}
-                                        </span>
-                                    </div>
-                                ))}
-                                <span
-                                    className="rounded-lg border px-2.5 py-1.5 text-xs opacity-70"
-                                    style={{
-                                        borderColor: 'var(--lp-border)',
-                                        backgroundColor: isLight
-                                            ? '#f8fafc'
-                                            : 'rgba(15, 23, 42, 0.4)',
-                                    }}
-                                >
-                                    +7 more
+                            <div className="lp-install-strip">
+                                <span className="lp-install-label">
+                                    {copy.hero.installHint}
                                 </span>
-                            </div>
-                        </div>
-
-                        {/* Bento 2: One click */}
-                        <div
-                            className="flex flex-col justify-between rounded-2xl border border-[var(--lp-border)] p-6 shadow-xs md:col-span-4"
-                            style={{
-                                backgroundColor: 'var(--lp-card)',
-                            }}
-                        >
-                            <div>
-                                <div className="mb-3">
-                                    <SvgMaskIcon
-                                        src={iconBolt}
-                                        className="size-6"
-                                        color="#34d399"
-                                    />
-                                </div>
-                                <h3
-                                    className="text-lg font-bold"
-                                    style={{ color: 'var(--lp-text-title)' }}
-                                >
-                                    {isFa
-                                        ? 'تغییر وضعیت با یک کلیک'
-                                        : 'One click to switch'}
-                                </h3>
-                                <p className="mt-2 text-sm leading-relaxed opacity-70">
-                                    {isFa
-                                        ? 'صفحه اصلی یک دکمهٔ پاور بزرگ است. برای بازگشت به DHCP یا بازیابی DNS قبلی کلیک کنید.'
-                                        : 'The home screen is one big power button. Tap it to restore DHCP or jump back to your last DNS.'}
-                                </p>
-                            </div>
-                        </div>
-
-                        {/* Bento 3: Benchmark */}
-                        <div
-                            className="flex flex-col justify-between rounded-2xl border border-[var(--lp-border)] p-6 shadow-xs md:col-span-4"
-                            style={{
-                                backgroundColor: 'var(--lp-card)',
-                            }}
-                        >
-                            <div>
-                                <div className="mb-3">
-                                    <SvgMaskIcon
-                                        src={iconGauge}
-                                        className="size-6"
-                                        color="#34d399"
-                                    />
-                                </div>
-                                <h3
-                                    className="text-lg font-bold"
-                                    style={{ color: 'var(--lp-text-title)' }}
-                                >
-                                    {isFa
-                                        ? 'بنچمارک پینگ قبل از انتخاب'
-                                        : 'Benchmark before you switch'}
-                                </h3>
-                                <p className="mt-2 text-sm leading-relaxed opacity-70">
-                                    {isFa
-                                        ? 'تأخیر واقعی Resolve و Connect را برای هر سرور بسنجید و سریع‌ترین گزینه را اعمال کنید.'
-                                        : 'Measure resolve and connect times for every preset and pick the fastest for your line.'}
-                                </p>
-                            </div>
-                        </div>
-
-                        {/* Bento 4: Fine-grained control */}
-                        <div
-                            className="rounded-2xl border border-[var(--lp-border)] p-6 shadow-xs md:col-span-4"
-                            style={{
-                                backgroundColor: 'var(--lp-card)',
-                            }}
-                        >
-                            <h3
-                                className="text-lg font-bold"
-                                style={{ color: 'var(--lp-text-title)' }}
-                            >
-                                {isFa
-                                    ? 'کنترل دقیق آداپتورها'
-                                    : 'Fine-grained control'}
-                            </h3>
-                            <ul className="mt-4 space-y-2.5 text-sm opacity-85">
-                                <li className="flex items-center gap-2">
-                                    <SvgMaskIcon
-                                        src={iconCheck}
-                                        className="size-4 shrink-0"
-                                        color="#34d399"
-                                    />
-                                    <span>
-                                        {isFa
-                                            ? 'اعمال روی یک آداپتور یا همهٔ آن‌ها'
-                                            : 'Apply to one adapter or to all of them'}
-                                    </span>
-                                </li>
-                                <li className="flex items-center gap-2">
-                                    <SvgMaskIcon
-                                        src={iconCheck}
-                                        className="size-4 shrink-0"
-                                        color="#34d399"
-                                    />
-                                    <span>
-                                        {isFa
-                                            ? 'ذخیرهٔ کانفیگ‌های سفارشی با نام دلخواه'
-                                            : 'Save your own named configurations'}
-                                    </span>
-                                </li>
-                                <li className="flex items-center gap-2">
-                                    <SvgMaskIcon
-                                        src={iconCheck}
-                                        className="size-4 shrink-0"
-                                        color="#34d399"
-                                    />
-                                    <span>
-                                        {isFa
-                                            ? 'بازنشانی آداپتورها به DHCP'
-                                            : 'Reset adapters to DHCP'}
-                                    </span>
-                                </li>
-                                <li className="flex items-center gap-2">
-                                    <SvgMaskIcon
-                                        src={iconCheck}
-                                        className="size-4 shrink-0"
-                                        color="#34d399"
-                                    />
-                                    <span>
-                                        {isFa
-                                            ? 'پاک‌سازی کش DNS سیستم‌عامل'
-                                            : 'Flush the OS DNS cache'}
-                                    </span>
-                                </li>
-                            </ul>
-                        </div>
-
-                        {/* Bento 5: Private and light */}
-                        <div
-                            className="rounded-2xl border border-[var(--lp-border)] p-6 shadow-xs md:col-span-4"
-                            style={{
-                                backgroundColor: 'var(--lp-card)',
-                            }}
-                        >
-                            <div className="mb-3">
-                                <SvgMaskIcon
-                                    src={iconShieldLock}
-                                    className="size-6"
-                                    color="#34d399"
-                                />
-                            </div>
-                            <h3
-                                className="text-lg font-bold"
-                                style={{ color: 'var(--lp-text-title)' }}
-                            >
-                                {isFa
-                                    ? 'حفظ حریم خصوصی و سبک'
-                                    : 'Private and light'}
-                            </h3>
-                            <p className="mt-2 text-sm leading-relaxed opacity-70">
-                                {isFa
-                                    ? 'بدون تله‌متری، بدون حساب کاربری و با حجم حدود ۱۰ مگابایت بدون الکترون. پشتیبانی از تم تاریک و روشن و زبان فارسی.'
-                                    : 'No telemetry, no analytics, no accounts. Around 10 MB with no Electron in sight. Dark and light themes, English and Persian.'}
-                            </p>
-                        </div>
-                    </div>
-                </div>
-            </section>
-
-            {/* SECTION 4: CLI Terminal */}
-            <section
-                id="cli"
-                className="border-t py-20 transition-colors duration-200"
-                style={{
-                    borderColor: 'var(--lp-border)',
-                    backgroundColor: 'var(--lp-bg-alt)',
-                }}
-            >
-                <div className="mx-auto max-w-7xl px-6">
-                    <div className="grid grid-cols-1 items-center gap-10 lg:grid-cols-12">
-                        <div className="lg:col-span-5">
-                            <h2
-                                className="text-2xl font-bold tracking-tight sm:text-3xl"
-                                style={{ color: 'var(--lp-text-title)' }}
-                            >
-                                {isFa
-                                    ? 'در ترمینال هم همراه شماست'
-                                    : 'Runs in your terminal too'}
-                            </h2>
-                            <p className="mt-3 text-sm leading-relaxed opacity-70">
-                                {isFa
-                                    ? 'نسخه CLI از همان تنظیمات و سرورها استفاده می‌کند. با npx مستقیماً اجرا می‌شود.'
-                                    : 'The CLI shares the core with the app: same presets, same config file, and built-in benchmarking. Start it with npx, nothing to install. Requires Node 18+.'}
-                            </p>
-                            <div className="mt-6">
-                                <a
-                                    href="https://www.npmjs.com/package/@seymi/dnss-cli"
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-[var(--lp-border)] px-4 py-2 text-xs font-semibold shadow-xs transition-all duration-150 hover:border-[#059669] hover:scale-105"
-                                    style={{
-                                        backgroundColor: 'var(--lp-card)',
-                                        color: 'var(--lp-text-title)',
-                                    }}
-                                >
-                                    📦{' '}
-                                    <span>
-                                        {isFa
-                                            ? 'مشاهده در npm'
-                                            : 'open package'}
-                                    </span>
-                                </a>
-                            </div>
-                        </div>
-
-                        {/* Terminal Window */}
-                        <div className="lg:col-span-7">
-                            <div
-                                className="overflow-hidden rounded-2xl border shadow-xl transition-colors duration-200"
-                                style={{
-                                    borderColor: 'var(--lp-border)',
-                                    backgroundColor: isLight
-                                        ? '#ffffff'
-                                        : '#0f172a',
-                                }}
-                            >
-                                <div
-                                    dir="ltr"
-                                    className="flex items-center justify-between border-b px-4 py-2.5 transition-colors duration-200"
-                                    style={{
-                                        borderColor: 'var(--lp-border)',
-                                        backgroundColor: isLight
-                                            ? '#f8fafc'
-                                            : '#1e293b',
-                                    }}
-                                >
-                                    <div className="flex items-center gap-2">
-                                        <div className="size-3 rounded-full bg-[#ff5f56]" />
-                                        <div className="size-3 rounded-full bg-[#ffbd2e]" />
-                                        <div className="size-3 rounded-full bg-[#27c93f]" />
-                                    </div>
-                                    <div className="font-mono text-xs text-slate-400">
-                                        bash
-                                    </div>
+                                <div className="lp-install-box" dir="ltr">
+                                    <code>{NPM_CMD}</code>
                                     <button
                                         type="button"
-                                        onClick={handleCopyCli}
-                                        className="flex cursor-pointer items-center gap-1.5 text-xs text-[#34d399] transition-opacity hover:opacity-80"
+                                        className="lp-copy-mini"
+                                        onClick={() =>
+                                            void copyToClipboard(
+                                                NPM_CMD,
+                                                'install'
+                                            )
+                                        }
                                     >
-                                        <SvgMaskIcon
-                                            src={copied ? iconCheck : iconCopy}
-                                            className="size-3.5"
-                                            color="#34d399"
-                                        />
-                                        <span>
-                                            {copied
-                                                ? isFa
-                                                    ? 'کپی شد!'
-                                                    : 'Copied!'
-                                                : isFa
-                                                  ? 'کپی'
-                                                  : 'Copy'}
-                                        </span>
+                                        {copiedInstall
+                                            ? copy.cli.copied
+                                            : copy.cli.copyCmd}
                                     </button>
                                 </div>
-                                <pre
-                                    dir="ltr"
-                                    className="overflow-x-auto p-5 font-mono text-xs leading-relaxed"
-                                    style={{
-                                        color: isLight ? '#334155' : '#cbd5e1',
-                                    }}
-                                >
-                                    <code>
-                                        <span className="text-[#34d399] font-bold">
-                                            $
-                                        </span>{' '}
-                                        <span
-                                            className={
-                                                isLight
-                                                    ? 'text-slate-900 font-semibold'
-                                                    : 'text-white'
-                                            }
+                            </div>
+                        </div>
+
+                        <div className="lp-hero-demo-col">
+                            <DemoStage copy={copy.demo} />
+                        </div>
+                    </div>
+                </section>
+
+                {/* ───────── Feature Architecture Bento ───────── */}
+                <section className="lp-section" id="features">
+                    <div className="lp-container">
+                        <div className="lp-section-head">
+                            <h2>{copy.features.title}</h2>
+                            <p>{copy.features.subtitle}</p>
+                        </div>
+
+                        <div className="lp-bento">
+                            {/* Card 1: UAC-Free Service & Per-Adapter Control */}
+                            <article className="lp-bento-card span-2">
+                                <div className="lp-bento-top">
+                                    <h3>{copy.features.service.title}</h3>
+                                    <button
+                                        type="button"
+                                        className={`lp-bento-toggle${
+                                            serviceMode === 'pipe' ? ' on' : ''
+                                        }`}
+                                        onClick={() =>
+                                            setServiceMode((m) =>
+                                                m === 'pipe' ? 'direct' : 'pipe'
+                                            )
+                                        }
+                                    >
+                                        {serviceMode === 'pipe'
+                                            ? copy.features.service.badgePipe
+                                            : copy.features.service.badgeDirect}
+                                    </button>
+                                </div>
+                                <p>{copy.features.service.desc}</p>
+                                <div className="lp-arch-list">
+                                    {(serviceMode === 'pipe'
+                                        ? copy.features.service.pipeLines
+                                        : copy.features.service.directLines
+                                    ).map((row) => (
+                                        <div
+                                            key={row.step}
+                                            className="lp-arch-row"
                                         >
-                                            npx @seymi/dnss-cli
-                                        </span>
-                                        {'\n'}
-                                        <span className="text-slate-400">
-                                            ? What would you like to do?
-                                        </span>
-                                        {'\n'}
-                                        <span className="text-[#34d399] font-semibold">
-                                            ❯ Change DNS settings
-                                        </span>
-                                        {'\n'}
-                                        {'  '}Benchmark DNS servers{'\n'}
-                                        {'  '}Show currently used DNS configs
-                                        {'\n'}
-                                        {'\n'}
-                                        {'  '}Reset all adapters to DHCP{'\n'}
-                                        {'  '}Exit
-                                    </code>
-                                </pre>
+                                            <span className="lp-sm-badge">
+                                                {row.step}
+                                            </span>
+                                            <span className="lp-arch-detail">
+                                                {row.detail}
+                                            </span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </article>
+
+                            {/* Card 2: Built-in Presets & Latency Benchmark */}
+                            <article className="lp-bento-card">
+                                <h3>{copy.features.presets.title}</h3>
+                                <p>{copy.features.presets.desc}</p>
+                                <div className="lp-search-modes">
+                                    {copy.features.presets.items.map((item) => (
+                                        <div
+                                            key={item.name}
+                                            className="lp-sm-row"
+                                            dir="ltr"
+                                        >
+                                            <span className="lp-sm-name-strong">
+                                                {item.name}
+                                            </span>
+                                            <code className="lp-sm-sample">
+                                                {item.ip}
+                                            </code>
+                                            <span className="lp-sm-badge">
+                                                {item.ms}
+                                            </span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </article>
+
+                            {/* Card 3: Unified VS Code-Style settings.json */}
+                            <article className="lp-bento-card">
+                                <div className="lp-bento-top">
+                                    <h3>{copy.features.settingsSync.title}</h3>
+                                    <span className="lp-dl-badge accent">
+                                        {copy.features.settingsSync.badge}
+                                    </span>
+                                </div>
+                                <p>{copy.features.settingsSync.desc}</p>
+                                <div className="lp-rich-compare" dir="ltr">
+                                    <pre className="lp-code-rich">
+                                        {SAMPLE_SETTINGS_JSON}
+                                    </pre>
+                                </div>
+                            </article>
+
+                            {/* Card 4: Rust + Tauri v2 + Privacy */}
+                            <article className="lp-bento-card span-2">
+                                <h3>{copy.features.safety.title}</h3>
+                                <p>{copy.features.safety.desc}</p>
+                                <div className="lp-safety-grid">
+                                    {copy.features.safety.items.map((item) => (
+                                        <div
+                                            key={item.label}
+                                            className="lp-safety-item"
+                                        >
+                                            <strong>{item.label}</strong>
+                                            <span>{item.detail}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </article>
+                        </div>
+                    </div>
+                </section>
+
+                {/* ───────── CLI Showcase ───────── */}
+                <section className="lp-section" id="cli">
+                    <div className="lp-container">
+                        <div className="lp-section-head">
+                            <h2>{copy.cli.title}</h2>
+                            <p>{copy.cli.subtitle}</p>
+                        </div>
+
+                        <div className="lp-cli-shell" dir="ltr">
+                            <div className="lp-cli-head">
+                                <div className="lp-cli-tabs" role="tablist">
+                                    {copy.cli.tabs.map((tab) => (
+                                        <button
+                                            key={tab.id}
+                                            type="button"
+                                            role="tab"
+                                            aria-selected={cliTab === tab.id}
+                                            className={`lp-cli-tab${
+                                                cliTab === tab.id
+                                                    ? ' active'
+                                                    : ''
+                                            }`}
+                                            onClick={() => setCliTab(tab.id)}
+                                        >
+                                            {tab.label}
+                                        </button>
+                                    ))}
+                                </div>
+                                <button
+                                    type="button"
+                                    className="lp-copy-mini"
+                                    onClick={() =>
+                                        void copyToClipboard(
+                                            activeCli.lines
+                                                .map((l) => l.cmd)
+                                                .join('\n'),
+                                            'cli'
+                                        )
+                                    }
+                                >
+                                    {copiedCli
+                                        ? copy.cli.copied
+                                        : copy.cli.copyCmd}
+                                </button>
+                            </div>
+
+                            <div className="lp-cli-body">
+                                {activeCli.lines.map((line, i) => (
+                                    <div key={i} className="lp-cli-block">
+                                        <div className="lp-cli-cmd">
+                                            <span className="lp-cli-prompt">
+                                                $
+                                            </span>
+                                            <code>{line.cmd}</code>
+                                        </div>
+                                        {line.out && (
+                                            <div className="lp-cli-out">
+                                                {line.out}
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
                             </div>
                         </div>
                     </div>
-                </div>
-            </section>
+                </section>
 
-            {/* Footer - Statically English & LTR */}
-            <footer
-                dir="ltr"
-                className="border-t py-10 text-xs opacity-70 transition-colors duration-200"
-                style={{ borderColor: 'var(--lp-border)' }}
-            >
-                <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-6">
-                    <div className="flex items-center gap-2">
-                        <img
-                            src={appIcon}
-                            alt="DNSS"
-                            className="size-5 rounded"
-                        />
-                        <span>
-                            DNSS — A free, open-source DNS changer for Windows,
-                            macOS and Linux. MIT License.
-                        </span>
+                {/* ───────── Download ───────── */}
+                <section
+                    className="lp-section lp-download-section"
+                    id="download"
+                >
+                    <div className="lp-container">
+                        <div className="lp-section-head">
+                            <h2>{copy.download.title}</h2>
+                            <p>{copy.download.subtitle}</p>
+                        </div>
+
+                        <div className="lp-dl-grid">
+                            <div className="lp-dl-card featured">
+                                <div className="lp-dl-head">
+                                    <h3>{copy.download.windows.title}</h3>
+                                    <span className="lp-dl-badge accent">
+                                        {copy.download.windows.badge}
+                                    </span>
+                                </div>
+                                <p>{copy.download.windows.desc}</p>
+                                <a
+                                    href={RELEASES_URL}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="lp-primary-btn"
+                                >
+                                    {copy.download.windows.btn}
+                                </a>
+                            </div>
+
+                            <div className="lp-dl-card">
+                                <div className="lp-dl-head">
+                                    <h3>{copy.download.unix.title}</h3>
+                                    <span className="lp-dl-badge">
+                                        {copy.download.unix.badge}
+                                    </span>
+                                </div>
+                                <p>{copy.download.unix.desc}</p>
+                                <a
+                                    href={RELEASES_URL}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="lp-secondary-btn"
+                                >
+                                    {copy.download.unix.btn}
+                                </a>
+                            </div>
+
+                            <div className="lp-dl-card">
+                                <div className="lp-dl-head">
+                                    <h3>{copy.download.cliPkg.title}</h3>
+                                    <span className="lp-dl-badge">
+                                        {copy.download.cliPkg.badge}
+                                    </span>
+                                </div>
+                                <p>{copy.download.cliPkg.desc}</p>
+                                <div className="lp-install-box" dir="ltr">
+                                    <code>{copy.download.cliPkg.cmd}</code>
+                                    <button
+                                        type="button"
+                                        className="lp-copy-mini"
+                                        onClick={() =>
+                                            void copyToClipboard(
+                                                copy.download.cliPkg.cmd,
+                                                'dl-cli'
+                                            )
+                                        }
+                                    >
+                                        {copiedDlCli
+                                            ? copy.cli.copied
+                                            : copy.cli.copyCmd}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                    <div className="flex gap-4">
-                        <a
-                            href="https://github.com/Hasan-Mir/dnss"
-                            target="_blank"
-                            rel="noreferrer"
-                            className="hover:underline"
-                        >
+                </section>
+            </main>
+
+            <footer className="lp-footer">
+                <div className="lp-container lp-footer-inner">
+                    <div className="lp-footer-brand">
+                        <img src={appIcon} alt="" />
+                        <span>DNSS</span>
+                    </div>
+                    <p>{copy.download.credits}</p>
+                    <div className="lp-footer-links">
+                        <a href={REPO_URL} target="_blank" rel="noreferrer">
                             GitHub
                         </a>
-                        <a
-                            href="https://github.com/Hasan-Mir/dnss/releases"
-                            target="_blank"
-                            rel="noreferrer"
-                            className="hover:underline"
-                        >
+                        <a href={RELEASES_URL} target="_blank" rel="noreferrer">
                             Releases
-                        </a>
-                        <a
-                            href="https://www.npmjs.com/package/@seymi/dnss-cli"
-                            target="_blank"
-                            rel="noreferrer"
-                            className="hover:underline"
-                        >
-                            npm
                         </a>
                     </div>
                 </div>

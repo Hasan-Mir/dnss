@@ -86,8 +86,11 @@ export function saveLang(lang: Lang): void {
 
 /** Mirrors the language onto <html lang> / <html dir> so the whole document
     (fonts, text alignment, flexbox, scrollbars) follows. */
-export function applyLang(lang: Lang): void {
+export function applyLang(
+    lang: Lang,
+    target: HTMLElement = document.documentElement
+): void {
     const meta = byCode.get(lang) ?? DEFAULT;
-    document.documentElement.lang = meta.code;
-    document.documentElement.dir = meta.dir;
+    target.lang = meta.code;
+    target.dir = meta.dir;
 }

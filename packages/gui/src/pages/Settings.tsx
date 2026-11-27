@@ -1,15 +1,22 @@
-import { useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
+    ArrowDownTrayIcon,
+    ArrowUpTrayIcon,
     ArrowUturnLeftIcon,
     CheckIcon,
+    ClipboardDocumentIcon,
+    CodeBracketIcon,
     ComputerDesktopIcon,
     MoonIcon,
     SunIcon,
+    XMarkIcon,
 } from '@heroicons/react/24/outline';
 import { DNS_PRESETS } from '@seymi/dnss-core/presets';
 import { openExternal } from '../api';
 import CustomSelect, { type SelectOption } from '../components/CustomSelect';
 import FloatingPanel from '../components/FloatingPanel';
+import { usePortalContainer } from '../components/PortalContext';
 import { LANGUAGES, type I18n, type Lang } from '../i18n';
 import {
     ACCENT_PRESETS,
@@ -40,10 +47,151 @@ interface SettingsPageProps {
     onResetAll: () => void;
     hiddenPresets: string[];
     onRestorePresets: () => void;
+    onExportSettings: () => Promise<string | null>;
+    onImportSettings: (rawJson: string) => Promise<boolean>;
+    showToast: (message: string, kind?: 'success' | 'error') => void;
 }
 
 const REPO_URL = 'https://github.com/Hasan-Mir/dnss';
+const MAX_IMPORT_BYTES = 512 * 1024;
 const INSPIRATION_URL = 'https://github.com/DnsChanger/dnsChanger-desktop';
+
+/** VS Code-style settings.json viewer/editor modal, scoped to demo container when embedded. */
+function SettingsJsonModal({
+    i18n,
+    initialJson,
+    saving,
+    onCopy,
+    onApply,
+    onClose,
+}: {
+    i18n: I18n;
+    initialJson: string;
+    saving: boolean;
+    onCopy: (text: string) => void;
+    onApply: (text: string) => Promise<boolean>;
+    onClose: () => void;
+}) {
+    const portalContainer = usePortalContainer();
+    const [text, setText] = useState(initialJson);
+    const [closing, setClosing] = useState(false);
+    const closeTimerRef = useRef<number | null>(null);
+
+    useEffect(() => {
+        return () => {
+            if (closeTimerRef.current !== null) {
+                window.clearTimeout(closeTimerRef.current);
+            }
+        };
+    }, []);
+
+    const requestClose = useCallback(() => {
+        if (saving || closing) return;
+        setClosing(true);
+        closeTimerRef.current = window.setTimeout(() => {
+            closeTimerRef.current = null;
+            onClose();
+        }, 140);
+    }, [saving, closing, onClose]);
+
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                requestClose();
+            }
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [requestClose]);
+
+    return createPortal(
+        <div
+            className={`${portalContainer ? 'absolute' : 'fixed'} inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[2px] ${
+                closing ? 'modal-backdrop-exit' : 'modal-backdrop-enter'
+            }`}
+            onClick={requestClose}
+        >
+            <div
+                role="dialog"
+                aria-modal="true"
+                className={`dnss-popover flex max-h-full w-full max-w-lg flex-col overflow-hidden rounded-2xl p-5 ${
+                    closing ? 'modal-exit' : 'modal-enter'
+                }`}
+                onClick={(e) => e.stopPropagation()}
+            >
+                <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2">
+                        <CodeBracketIcon className="size-4 shrink-0 text-[var(--dnss-accent)]" />
+                        <h3 className="m-0 font-mono text-[length:var(--dnss-fs-md)] font-semibold text-[var(--dnss-ink-1)]">
+                            {i18n.t('settings.jsonModalTitle')}
+                        </h3>
+                    </div>
+                    <button
+                        type="button"
+                        disabled={saving}
+                        onClick={requestClose}
+                        className="grid size-7 shrink-0 place-items-center rounded-lg text-[var(--dnss-ink-3)] hover:bg-[var(--dnss-hover)] hover:text-[var(--dnss-ink-1)]"
+                    >
+                        <XMarkIcon className="size-4 shrink-0" />
+                    </button>
+                </div>
+
+                <p className="mt-1.5 text-[length:var(--dnss-fs-xs)] leading-relaxed text-[var(--dnss-ink-3)]">
+                    {i18n.t('settings.jsonModalHint')}
+                </p>
+
+                <textarea
+                    dir="ltr"
+                    spellCheck={false}
+                    value={text}
+                    onChange={(e) => setText(e.target.value)}
+                    rows={12}
+                    className="dnss-input mt-3 min-h-[160px] w-full flex-1 resize-none rounded-xl p-3 font-mono text-[length:var(--dnss-fs-xs)] leading-relaxed"
+                />
+
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                    <button
+                        type="button"
+                        onClick={() => onCopy(text)}
+                        className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[var(--dnss-raised)] px-3 text-[length:var(--dnss-fs-xs)] font-medium text-[var(--dnss-ink-1)] hover:bg-[var(--dnss-hover)]"
+                    >
+                        <ClipboardDocumentIcon className="size-3.5 shrink-0" />
+                        {i18n.t('settings.copyJson')}
+                    </button>
+
+                    <div className="flex items-center gap-2">
+                        <button
+                            type="button"
+                            disabled={saving}
+                            onClick={requestClose}
+                            className="inline-flex h-8 items-center rounded-lg px-3 text-[length:var(--dnss-fs-xs)] font-medium text-[var(--dnss-ink-2)] hover:bg-[var(--dnss-hover)] hover:text-[var(--dnss-ink-1)]"
+                        >
+                            {i18n.t('common.cancel')}
+                        </button>
+                        <button
+                            type="button"
+                            disabled={saving}
+                            onClick={async () => {
+                                if (await onApply(text)) {
+                                    requestClose();
+                                }
+                            }}
+                            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[var(--dnss-accent)] px-3.5 text-[length:var(--dnss-fs-xs)] font-medium text-[var(--dnss-accent-ink)] hover:bg-[var(--dnss-accent-hover)] disabled:opacity-50"
+                        >
+                            {saving ? (
+                                <span className="loading loading-spinner loading-xs" />
+                            ) : (
+                                <CheckIcon className="size-3.5 shrink-0" />
+                            )}
+                            {i18n.t('settings.applyJson')}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>,
+        portalContainer ?? document.body
+    );
+}
 
 export default function SettingsPage({
     i18n,
@@ -61,11 +209,78 @@ export default function SettingsPage({
     onResetAll,
     hiddenPresets,
     onRestorePresets,
+    onExportSettings,
+    onImportSettings,
+    showToast,
 }: SettingsPageProps) {
     const { t, num } = i18n;
     const [confirmReset, setConfirmReset] = useState(false);
     const [hexDraft, setHexDraft] = useState<string | null>(null);
+    const [jsonModalText, setJsonModalText] = useState<string | null>(null);
+    const [jsonSaving, setJsonSaving] = useState(false);
     const resetButtonRef = useRef<HTMLButtonElement | null>(null);
+    const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+    const handleDownloadJson = async () => {
+        const json = await onExportSettings();
+        if (!json) return;
+        const blob = new Blob([`${json}\n`], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'dnss-settings.json';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+        showToast(t('toast.settingsExported'));
+    };
+
+    const handleOpenJsonModal = async () => {
+        const json = await onExportSettings();
+        if (json) {
+            setJsonModalText(json);
+        }
+    };
+
+    const handleCopyJson = async (raw: string) => {
+        try {
+            await navigator.clipboard.writeText(raw);
+            showToast(t('toast.settingsCopied'));
+        } catch {
+            showToast(t('toast.settingsCopyFailed'), 'error');
+        }
+    };
+
+    const handleImportFile = async (file: File) => {
+        if (file.size > MAX_IMPORT_BYTES) {
+            showToast(
+                t('toast.settingsImportFailed', {
+                    error: 'Settings file exceeds 512 KiB size limit',
+                }),
+                'error'
+            );
+            if (fileInputRef.current) {
+                fileInputRef.current.value = '';
+            }
+            return;
+        }
+        setJsonSaving(true);
+        try {
+            const raw = await file.text();
+            await onImportSettings(raw);
+        } catch (error) {
+            showToast(
+                t('toast.settingsImportFailed', { error: String(error) }),
+                'error'
+            );
+        } finally {
+            setJsonSaving(false);
+            if (fileInputRef.current) {
+                fileInputRef.current.value = '';
+            }
+        }
+    };
 
     const hsl = useMemo(() => hexToHsl(accent), [accent]);
 
@@ -374,6 +589,65 @@ export default function SettingsPage({
                 </div>
             </section>
 
+            {/* Settings & Backup (settings.json) */}
+            <section className="dnss-card rounded-2xl p-4">
+                <div className="flex flex-col gap-3">
+                    <div>
+                        <div className="text-[length:var(--dnss-fs-sm)] font-semibold text-[var(--dnss-ink-1)]">
+                            {t('settings.backup')}
+                        </div>
+                        <p className="mt-0.5 text-[length:var(--dnss-fs-xs)] leading-relaxed text-[var(--dnss-ink-2)]">
+                            {t('settings.backupDesc')}
+                        </p>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                        <button
+                            type="button"
+                            disabled={busy || jsonSaving}
+                            onClick={() => void handleDownloadJson()}
+                            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[var(--dnss-raised)] px-3 text-[length:var(--dnss-fs-xs)] font-medium text-[var(--dnss-ink-1)] hover:bg-[var(--dnss-hover)] disabled:opacity-50"
+                        >
+                            <ArrowDownTrayIcon className="size-3.5 shrink-0 text-[var(--dnss-accent)]" />
+                            {t('settings.exportJson')}
+                        </button>
+
+                        <button
+                            type="button"
+                            disabled={busy || jsonSaving}
+                            onClick={() => fileInputRef.current?.click()}
+                            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[var(--dnss-raised)] px-3 text-[length:var(--dnss-fs-xs)] font-medium text-[var(--dnss-ink-1)] hover:bg-[var(--dnss-hover)] disabled:opacity-50"
+                        >
+                            <ArrowUpTrayIcon className="size-3.5 shrink-0 text-[var(--dnss-accent)]" />
+                            {t('settings.importJson')}
+                        </button>
+
+                        <button
+                            type="button"
+                            disabled={busy || jsonSaving}
+                            onClick={() => void handleOpenJsonModal()}
+                            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[var(--dnss-border-strong)] bg-[var(--dnss-surface)] px-3 text-[length:var(--dnss-fs-xs)] font-medium text-[var(--dnss-ink-1)] hover:bg-[var(--dnss-raised)] disabled:opacity-50"
+                        >
+                            <CodeBracketIcon className="size-3.5 shrink-0 text-[var(--dnss-ink-2)]" />
+                            {t('settings.editJson')}
+                        </button>
+
+                        <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept=".json,application/json"
+                            className="hidden"
+                            onChange={(e) => {
+                                const file = e.target.files?.[0];
+                                if (file) {
+                                    void handleImportFile(file);
+                                }
+                            }}
+                        />
+                    </div>
+                </div>
+            </section>
+
             {/* Maintenance */}
             <section className="dnss-card rounded-2xl p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -468,6 +742,24 @@ export default function SettingsPage({
                         </button>
                     </div>
                 </section>
+            )}
+
+            {jsonModalText !== null && (
+                <SettingsJsonModal
+                    i18n={i18n}
+                    initialJson={jsonModalText}
+                    saving={jsonSaving}
+                    onCopy={(raw) => void handleCopyJson(raw)}
+                    onApply={async (raw) => {
+                        setJsonSaving(true);
+                        try {
+                            return await onImportSettings(raw);
+                        } finally {
+                            setJsonSaving(false);
+                        }
+                    }}
+                    onClose={() => setJsonModalText(null)}
+                />
             )}
 
             {/* About & Privacy */}

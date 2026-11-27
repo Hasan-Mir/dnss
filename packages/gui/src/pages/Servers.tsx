@@ -26,6 +26,7 @@ import { validateIPv4 } from '@seymi/dnss-core/validate';
 import { api, type Adapter, type DnsConfig, type DnsStatus } from '../api';
 import CustomSelect, { type SelectOption } from '../components/CustomSelect';
 import FloatingPanel from '../components/FloatingPanel';
+import { usePortalContainer } from '../components/PortalContext';
 import type { I18n, MsgKey } from '../i18n';
 
 interface PingState {
@@ -47,6 +48,8 @@ interface ServersPageProps {
     persistConfigs: (next: DnsConfig[]) => Promise<boolean>;
     hiddenPresets: string[];
     onHidePreset: (id: string) => void;
+    benchmarkTarget?: string;
+    onBenchmarkTargetChange?: (target: string) => void;
     busy: boolean;
     applyBusyId: string | null;
     onApply: (
@@ -199,6 +202,7 @@ function ServerModal({
     onSubmit: () => void;
     onCancel: () => void;
 }) {
+    const portalContainer = usePortalContainer();
     const [closing, setClosing] = useState(false);
     const closeTimerRef = useRef<number | null>(null);
 
@@ -231,7 +235,7 @@ function ServerModal({
 
     return createPortal(
         <div
-            className={`fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[2px] ${
+            className={`${portalContainer ? 'absolute' : 'fixed'} inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-[2px] ${
                 closing ? 'modal-backdrop-exit' : 'modal-backdrop-enter'
             }`}
             onClick={requestClose}
@@ -334,7 +338,7 @@ function ServerModal({
                 </form>
             </div>
         </div>,
-        document.body
+        portalContainer ?? document.body
     );
 }
 
@@ -348,6 +352,8 @@ export default function ServersPage({
     persistConfigs,
     hiddenPresets,
     onHidePreset,
+    benchmarkTarget: controlledBenchmarkTarget,
+    onBenchmarkTargetChange,
     busy,
     applyBusyId,
     onApply,
@@ -363,10 +369,11 @@ export default function ServersPage({
     const [sortPings, setSortPings] = useState<Record<string, PingState>>({});
     const [benchmarking, setBenchmarking] = useState(false);
     const [benchWarning, setBenchWarning] = useState<string | null>(null);
-    const [benchmarkTarget, setBenchmarkTarget] = useState(() => {
+    const [localBenchmarkTarget, setLocalBenchmarkTarget] = useState(() => {
         const stored = localStorage.getItem('dnss.benchmarkTarget')?.trim();
         return stored || DEFAULT_BENCHMARK_TARGET;
     });
+    const benchmarkTarget = controlledBenchmarkTarget ?? localBenchmarkTarget;
     const [search, setSearch] = useState('');
     const [filterTab, setFilterTab] = useState<FilterTab>('all');
     const [sortBy, setSortBy] = useState<SortMode>('default');
@@ -828,8 +835,12 @@ export default function ServersPage({
     };
 
     const handleTargetChange = (value: string) => {
-        setBenchmarkTarget(value);
-        localStorage.setItem('dnss.benchmarkTarget', value);
+        if (onBenchmarkTargetChange) {
+            onBenchmarkTargetChange(value);
+        } else {
+            setLocalBenchmarkTarget(value);
+            localStorage.setItem('dnss.benchmarkTarget', value);
+        }
     };
 
     const renderRow = (entry: Entry): ReactNode => {

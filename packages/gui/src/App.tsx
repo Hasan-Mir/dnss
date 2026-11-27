@@ -16,6 +16,7 @@ import {
     api,
     isDesktopApp,
     type Adapter,
+    type AppSettings,
     type DnsConfig,
     type DnsStatus,
 } from './api';
@@ -44,6 +45,7 @@ import {
 } from './theme';
 import { applyLang, createI18n, loadLang, saveLang, type Lang } from './i18n';
 import appIcon from './assets/app-icon.png';
+import { PortalContext } from './components/PortalContext';
 import TitleBar from './components/TitleBar';
 import HomePage from './pages/Home';
 import ServersPage from './pages/Servers';
@@ -63,6 +65,23 @@ type BusyOp =
 
 const MIN_BUSY_MS = 700;
 const HIDDEN_PRESETS_KEY = 'dnss.hiddenPresets';
+const BENCHMARK_TARGET_KEY = 'dnss.benchmarkTarget';
+const DEFAULT_BENCHMARK_TARGET = 'https://www.cloudflare.com';
+
+function serializeSettings(settings: AppSettings): string {
+    return JSON.stringify({
+        'dnss.schemaVersion': 1,
+        'appearance.theme': settings['appearance.theme'],
+        'appearance.accent': settings['appearance.accent'],
+        'appearance.fontFamily': settings['appearance.fontFamily'],
+        'appearance.fontSize': settings['appearance.fontSize'],
+        'general.language': settings['general.language'],
+        'benchmark.target':
+            settings['benchmark.target'].trim() || DEFAULT_BENCHMARK_TARGET,
+        'presets.hidden': settings['presets.hidden'],
+        'dns.servers': settings['dns.servers'],
+    });
+}
 
 function loadHiddenPresets(): string[] {
     try {
@@ -109,7 +128,9 @@ export interface AppProps {
     onThemeChange?: (theme: ThemeMode) => void;
     lang?: Lang;
     onLangChange?: (lang: Lang) => void;
-    /** Hide the frameless desktop TitleBar when embedded inside the docs landing page mockup. */
+    accent?: string;
+    onAccentChange?: (accent: string) => void;
+    /** Hide the frameless desktop TitleBar and scope portals/tokens inside the demo container. */
     embedded?: boolean;
 }
 
@@ -118,6 +139,8 @@ export default function App({
     onThemeChange: onExternalThemeChange,
     lang: externalLang,
     onLangChange: onExternalLangChange,
+    accent: externalAccent,
+    onAccentChange: onExternalAccentChange,
     embedded = false,
 }: AppProps = {}) {
     const [page, setPage] = useState<Page>('home');
@@ -127,13 +150,27 @@ export default function App({
     const [lang, setLang] = useState<Lang>(() => externalLang ?? loadLang());
     const [fontFamily, setFontFamily] = useState<FontFamilyId>(loadFontFamily);
     const [fontSize, setFontSize] = useState<FontSizePx>(loadFontSize);
-    const [accent, setAccent] = useState<string>(loadAccent);
+    const [accent, setAccent] = useState<string>(
+        () => externalAccent ?? loadAccent()
+    );
     const [adapters, setAdapters] = useState<Adapter[]>([]);
     const [activeAdapter, setActiveAdapter] = useState<Adapter | null>(null);
     const [activeDns, setActiveDns] = useState<DnsStatus | null>(null);
     const [configs, setConfigs] = useState<DnsConfig[]>([]);
     const [hiddenPresets, setHiddenPresets] =
         useState<string[]>(loadHiddenPresets);
+    const [benchmarkTarget, setBenchmarkTarget] = useState<string>(() => {
+        const stored = localStorage.getItem(BENCHMARK_TARGET_KEY)?.trim();
+        return stored || DEFAULT_BENCHMARK_TARGET;
+    });
+    const [appRootEl, setAppRootEl] = useState<HTMLDivElement | null>(null);
+    const lastSyncedSettingsRef = useRef<string | null>(null);
+    const externalThemeRef = useRef(externalTheme);
+    externalThemeRef.current = externalTheme;
+    const externalAccentRef = useRef(externalAccent);
+    externalAccentRef.current = externalAccent;
+    const externalLangRef = useRef(externalLang);
+    externalLangRef.current = externalLang;
     const [loadError, setLoadError] = useState<string | null>(null);
     const [busyOp, setBusyOp] = useState<BusyOp>(null);
     const [refreshing, setRefreshing] = useState(false);
@@ -145,18 +182,28 @@ export default function App({
 
     const isEmbeddedDemo = embedded || Boolean(onExternalThemeChange);
 
-    // Sync language from external prop
+    // Sync language & accent from external props (e.g. landing page workbench)
     useEffect(() => {
         if (externalLang && externalLang !== lang) {
             setLang(externalLang);
         }
     }, [externalLang, lang]);
 
-    // Apply language changes
     useEffect(() => {
-        applyLang(lang);
-        saveLang(lang);
-    }, [lang]);
+        if (externalAccent && externalAccent !== accent) {
+            setAccent(externalAccent);
+        }
+    }, [externalAccent, accent]);
+
+    // Apply language changes (scoped to appRootEl in embedded demo mode)
+    useEffect(() => {
+        const target = isEmbeddedDemo ? appRootEl : document.documentElement;
+        if (!target) return;
+        applyLang(lang, target);
+        if (!isEmbeddedDemo) {
+            saveLang(lang);
+        }
+    }, [lang, isEmbeddedDemo, appRootEl]);
 
     const handleLangChange = useCallback(
         (newLang: Lang) => {
@@ -166,6 +213,16 @@ export default function App({
             }
         },
         [onExternalLangChange]
+    );
+
+    const handleAccentChange = useCallback(
+        (newAccent: string) => {
+            setAccent(newAccent);
+            if (onExternalAccentChange) {
+                onExternalAccentChange(newAccent);
+            }
+        },
+        [onExternalAccentChange]
     );
 
     const i18n = useMemo(() => createI18n(lang), [lang]);
@@ -202,27 +259,42 @@ export default function App({
         }
     }, [externalTheme, theme]);
 
-    // Apply theme changes
+    // Apply theme, font, size, and accent changes (scoped to appRootEl when embedded)
     useEffect(() => {
-        applyTheme(theme);
-        saveTheme(theme);
-    }, [theme]);
-
-    // Apply font family, font size, and accent color changes
-    useEffect(() => {
-        applyFontFamily(fontFamily);
-        saveFontFamily(fontFamily);
-    }, [fontFamily]);
+        const target = isEmbeddedDemo ? appRootEl : document.documentElement;
+        if (!target) return;
+        applyTheme(theme, target, accent);
+        if (!isEmbeddedDemo) {
+            saveTheme(theme);
+        }
+    }, [theme, accent, isEmbeddedDemo, appRootEl]);
 
     useEffect(() => {
-        applyFontSize(fontSize);
-        saveFontSize(fontSize);
-    }, [fontSize]);
+        const target = isEmbeddedDemo ? appRootEl : document.documentElement;
+        if (!target) return;
+        applyFontFamily(fontFamily, target);
+        if (!isEmbeddedDemo) {
+            saveFontFamily(fontFamily);
+        }
+    }, [fontFamily, isEmbeddedDemo, appRootEl]);
 
     useEffect(() => {
-        applyAccent(accent, getResolvedTheme(theme));
-        saveAccent(accent);
-    }, [accent, theme]);
+        const target = isEmbeddedDemo ? appRootEl : document.documentElement;
+        if (!target) return;
+        applyFontSize(fontSize, target);
+        if (!isEmbeddedDemo) {
+            saveFontSize(fontSize);
+        }
+    }, [fontSize, isEmbeddedDemo, appRootEl]);
+
+    useEffect(() => {
+        const target = isEmbeddedDemo ? appRootEl : document.documentElement;
+        if (!target) return;
+        applyAccent(accent, getResolvedTheme(theme), target);
+        if (!isEmbeddedDemo) {
+            saveAccent(accent);
+        }
+    }, [accent, theme, isEmbeddedDemo, appRootEl]);
 
     const handleThemeChange = useCallback(
         (newTheme: ThemeMode) => {
@@ -235,10 +307,11 @@ export default function App({
     );
 
     useEffect(() => {
+        if (isEmbeddedDemo) return;
         return watchSystemTheme(() => {
             applyTheme(loadTheme());
         });
-    }, []);
+    }, [isEmbeddedDemo]);
 
     // Sync appearance, language, and hidden presets if modified from the tray window.
     useEffect(() => {
@@ -261,10 +334,28 @@ export default function App({
         return () => window.removeEventListener('storage', onStorage);
     }, [externalTheme, externalLang]);
 
+    const updateSyncedConfigs = useCallback((nextConfigs: DnsConfig[]) => {
+        if (!lastSyncedSettingsRef.current) return;
+        try {
+            const prev = JSON.parse(
+                lastSyncedSettingsRef.current
+            ) as AppSettings;
+            lastSyncedSettingsRef.current = serializeSettings({
+                ...prev,
+                'dns.servers': nextConfigs,
+            });
+        } catch {
+            // Ignore malformed snapshot
+        }
+    }, []);
+
     const loadConfigs = useCallback(() => {
         if (!isDesktopApp()) return;
         api.getConfigs()
-            .then(setConfigs)
+            .then((loaded) => {
+                updateSyncedConfigs(loaded);
+                setConfigs(loaded);
+            })
             .catch((error) => {
                 showToast(
                     tRef.current('toast.loadSavedFailed', {
@@ -273,11 +364,161 @@ export default function App({
                     'error'
                 );
             });
-    }, [showToast]);
+    }, [showToast, updateSyncedConfigs]);
+
+    const applyHydratedSettings = useCallback(
+        (settings: AppSettings, opts?: { propagateExternal?: boolean }) => {
+            const propagate = opts?.propagateExternal ?? false;
+            const effectiveTheme =
+                propagate || !externalThemeRef.current
+                    ? settings['appearance.theme']
+                    : externalThemeRef.current;
+            const effectiveAccent =
+                propagate || !externalAccentRef.current
+                    ? settings['appearance.accent']
+                    : externalAccentRef.current;
+            const effectiveLang =
+                propagate || !externalLangRef.current
+                    ? settings['general.language']
+                    : externalLangRef.current;
+            const effectiveTarget =
+                settings['benchmark.target']?.trim() ||
+                DEFAULT_BENCHMARK_TARGET;
+
+            lastSyncedSettingsRef.current = serializeSettings({
+                ...settings,
+                'appearance.theme': effectiveTheme,
+                'appearance.accent': effectiveAccent,
+                'general.language': effectiveLang,
+                'benchmark.target': effectiveTarget,
+            });
+
+            if (propagate) {
+                handleThemeChange(effectiveTheme);
+                handleAccentChange(effectiveAccent);
+                handleLangChange(effectiveLang);
+            } else {
+                if (!externalThemeRef.current) {
+                    setTheme(effectiveTheme);
+                }
+                if (!externalAccentRef.current) {
+                    setAccent(effectiveAccent);
+                }
+                if (!externalLangRef.current) {
+                    setLang(effectiveLang);
+                }
+            }
+            setFontFamily(settings['appearance.fontFamily']);
+            setFontSize(settings['appearance.fontSize']);
+            setBenchmarkTarget(effectiveTarget);
+            setHiddenPresets(settings['presets.hidden']);
+            setConfigs(settings['dns.servers']);
+        },
+        [handleAccentChange, handleLangChange, handleThemeChange]
+    );
 
     useEffect(() => {
-        loadConfigs();
-    }, [loadConfigs]);
+        if (!isDesktopApp()) return;
+        let cancelled = false;
+        api.getSettings()
+            .then((settings) => {
+                if (cancelled) return;
+                applyHydratedSettings(settings);
+            })
+            .catch(() => {
+                if (cancelled) return;
+                loadConfigs();
+            });
+        return () => {
+            cancelled = true;
+        };
+        // Hydrate once on mount so external demo prop toggles never re-fetch stale settings.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    // Persist preference updates to unified ~/.dnss/settings.json only when changed.
+    useEffect(() => {
+        if (!isDesktopApp() || lastSyncedSettingsRef.current === null) return;
+        const payload: AppSettings = {
+            'dnss.schemaVersion': 1,
+            'appearance.theme': theme,
+            'appearance.accent': accent,
+            'appearance.fontFamily': fontFamily,
+            'appearance.fontSize': fontSize,
+            'general.language': lang,
+            'benchmark.target':
+                benchmarkTarget.trim() || DEFAULT_BENCHMARK_TARGET,
+            'presets.hidden': hiddenPresets,
+            'dns.servers': configs,
+        };
+        const serialized = serializeSettings(payload);
+        if (serialized === lastSyncedSettingsRef.current) return;
+
+        const timer = window.setTimeout(() => {
+            const prevSynced = lastSyncedSettingsRef.current;
+            lastSyncedSettingsRef.current = serialized;
+            void api
+                .saveSettings(payload)
+                .then((saved) => {
+                    lastSyncedSettingsRef.current = serializeSettings(saved);
+                })
+                .catch(() => {
+                    if (lastSyncedSettingsRef.current === serialized) {
+                        lastSyncedSettingsRef.current = prevSynced;
+                    }
+                });
+        }, 250);
+        return () => window.clearTimeout(timer);
+    }, [
+        theme,
+        accent,
+        fontFamily,
+        fontSize,
+        lang,
+        benchmarkTarget,
+        hiddenPresets,
+        configs,
+    ]);
+
+    const handleExportSettings = useCallback(async (): Promise<
+        string | null
+    > => {
+        try {
+            return await api.exportSettingsJson();
+        } catch (error) {
+            showToast(
+                tRef.current('toast.settingsExportFailed', {
+                    error: String(error),
+                }),
+                'error'
+            );
+            return null;
+        }
+    }, [showToast]);
+
+    const handleImportSettings = useCallback(
+        async (rawJson: string): Promise<boolean> => {
+            try {
+                const imported = await api.importSettingsJson(rawJson);
+                applyHydratedSettings(imported, { propagateExternal: true });
+                showToast(
+                    tRef.current('toast.settingsImported', {
+                        count: imported['dns.servers'].length,
+                    })
+                );
+                return true;
+            } catch (error) {
+                showToast(
+                    tRef.current('toast.settingsImportFailed', {
+                        error: String(error),
+                    }),
+                    'error'
+                );
+                return false;
+            }
+        },
+        [applyHydratedSettings, showToast]
+    );
 
     const refreshSeq = useRef(0);
 
@@ -547,6 +788,7 @@ export default function App({
         async (next: DnsConfig[]): Promise<boolean> => {
             try {
                 const saved = await api.saveConfigs(next);
+                updateSyncedConfigs(saved);
                 setConfigs(saved);
                 return true;
             } catch (error) {
@@ -557,12 +799,18 @@ export default function App({
                 return false;
             }
         },
-        [showToast, t]
+        [showToast, t, updateSyncedConfigs]
     );
 
     useEffect(() => {
+        if (isEmbeddedDemo) return;
         localStorage.setItem(HIDDEN_PRESETS_KEY, JSON.stringify(hiddenPresets));
-    }, [hiddenPresets]);
+    }, [hiddenPresets, isEmbeddedDemo]);
+
+    useEffect(() => {
+        if (isEmbeddedDemo) return;
+        localStorage.setItem(BENCHMARK_TARGET_KEY, benchmarkTarget);
+    }, [benchmarkTarget, isEmbeddedDemo]);
 
     const hidePreset = useCallback((id: string) => {
         setHiddenPresets((prev) => (prev.includes(id) ? prev : [...prev, id]));
@@ -644,230 +892,248 @@ export default function App({
     ];
 
     return (
-        <div className="@container flex h-full w-full flex-col overflow-hidden bg-[var(--dnss-canvas)] text-[var(--dnss-ink-1)]">
-            {!isEmbeddedDemo && (
-                <TitleBar
-                    title="DNSS - DNS Switcher"
-                    minimizeLabel={t('window.minimize')}
-                    maximizeLabel={t('window.maximize')}
-                    restoreLabel={t('window.restore')}
-                    closeLabel={t('window.close')}
-                    onError={(msg) => showToast(msg, 'error')}
-                />
-            )}
+        <PortalContext.Provider value={isEmbeddedDemo ? appRootEl : null}>
+            <div
+                ref={setAppRootEl}
+                className="@container relative flex h-full w-full flex-col overflow-hidden bg-[var(--dnss-canvas)] text-[var(--dnss-ink-1)]"
+            >
+                {!isEmbeddedDemo && (
+                    <TitleBar
+                        title="DNSS - DNS Switcher"
+                        minimizeLabel={t('window.minimize')}
+                        maximizeLabel={t('window.maximize')}
+                        restoreLabel={t('window.restore')}
+                        closeLabel={t('window.close')}
+                        onError={(msg) => showToast(msg, 'error')}
+                    />
+                )}
 
-            <div className="flex min-h-0 flex-1 overflow-hidden">
-                {/* Full-height Sidebar Navigation Rail */}
-                <aside className="flex h-full w-[196px] shrink-0 select-none flex-col border-e border-[var(--dnss-border)] bg-[var(--dnss-sidebar)] @max-[680px]:w-[148px]">
-                    {/* Brand Lockup */}
-                    <div className="flex items-center gap-2.5 px-4 pt-4 pb-3">
-                        <img
-                            src={appIcon}
-                            alt="DNSS"
-                            className="size-7 shrink-0 select-none"
-                            draggable={false}
-                        />
-                        <div className="min-w-0">
-                            <div className="truncate text-[length:var(--dnss-fs-base)] font-bold leading-tight text-[var(--dnss-ink-1)]">
-                                DNSS
-                            </div>
-                            <div className="truncate text-[length:var(--dnss-fs-2xs)] leading-tight text-[var(--dnss-ink-3)]">
-                                {t('app.tagline')}
+                <div className="flex min-h-0 flex-1 overflow-hidden">
+                    {/* Full-height Sidebar Navigation Rail */}
+                    <aside className="flex h-full w-[196px] shrink-0 select-none flex-col border-e border-[var(--dnss-border)] bg-[var(--dnss-sidebar)] @max-[680px]:w-[148px]">
+                        {/* Brand Lockup */}
+                        <div className="flex items-center gap-2.5 px-4 pt-4 pb-3">
+                            <img
+                                src={appIcon}
+                                alt="DNSS"
+                                className="size-7 shrink-0 select-none"
+                                draggable={false}
+                            />
+                            <div className="min-w-0">
+                                <div className="truncate text-[length:var(--dnss-fs-base)] font-bold leading-tight text-[var(--dnss-ink-1)]">
+                                    DNSS
+                                </div>
+                                <div className="truncate text-[length:var(--dnss-fs-2xs)] leading-tight text-[var(--dnss-ink-3)]">
+                                    {t('app.tagline')}
+                                </div>
                             </div>
                         </div>
-                    </div>
 
-                    {/* Primary Navigation */}
-                    <nav className="flex flex-1 flex-col gap-1 px-2.5 py-2">
-                        {navItems.map((item) => {
-                            const Icon = item.icon;
-                            const active = page === item.id;
-                            return (
+                        {/* Primary Navigation */}
+                        <nav className="flex flex-1 flex-col gap-1 px-2.5 py-2">
+                            {navItems.map((item) => {
+                                const Icon = item.icon;
+                                const active = page === item.id;
+                                return (
+                                    <button
+                                        key={item.id}
+                                        type="button"
+                                        onClick={() => setPage(item.id)}
+                                        className={`flex h-9 w-full items-center gap-2.5 rounded-xl px-2.5 text-[length:var(--dnss-fs-sm)] font-medium ${
+                                            active
+                                                ? 'border border-[var(--dnss-border-strong)] bg-[var(--dnss-nav-active)] text-[var(--dnss-ink-1)] shadow-xs'
+                                                : 'border border-transparent text-[var(--dnss-ink-2)] hover:bg-[var(--dnss-hover)] hover:text-[var(--dnss-ink-1)]'
+                                        }`}
+                                    >
+                                        <Icon
+                                            className={`size-4 shrink-0 ${
+                                                active
+                                                    ? 'text-[var(--dnss-accent)]'
+                                                    : 'text-[var(--dnss-ink-3)]'
+                                            }`}
+                                        />
+                                        <span className="truncate">
+                                            {item.label}
+                                        </span>
+                                    </button>
+                                );
+                            })}
+                        </nav>
+
+                        {/* Compact Status & Utility Footer */}
+                        <div className="border-t border-[var(--dnss-border)] p-2.5">
+                            <div
+                                className={`mb-2 flex items-center gap-2 rounded-xl border px-2.5 py-1.5 transition-colors ${
+                                    isCustomDnsActive
+                                        ? 'border-[var(--dnss-accent)]/25 bg-[var(--dnss-accent-soft)] text-[var(--dnss-accent-text)]'
+                                        : 'border-[var(--dnss-border)] bg-[var(--dnss-surface)] text-[var(--dnss-ink-2)]'
+                                }`}
+                            >
+                                <span
+                                    className={`size-2 shrink-0 rounded-full ${
+                                        isCustomDnsActive
+                                            ? 'bg-[var(--dnss-accent)]'
+                                            : 'bg-[var(--dnss-ink-3)]'
+                                    }`}
+                                />
+                                <span className="truncate text-[length:var(--dnss-fs-xs)] font-semibold">
+                                    {activeProviderName}
+                                </span>
+                            </div>
+
+                            <div className="flex items-center justify-between gap-1">
                                 <button
-                                    key={item.id}
                                     type="button"
-                                    onClick={() => setPage(item.id)}
-                                    className={`flex h-9 w-full items-center gap-2.5 rounded-xl px-2.5 text-[length:var(--dnss-fs-sm)] font-medium ${
-                                        active
-                                            ? 'border border-[var(--dnss-border-strong)] bg-[var(--dnss-nav-active)] text-[var(--dnss-ink-1)] shadow-xs'
-                                            : 'border border-transparent text-[var(--dnss-ink-2)] hover:bg-[var(--dnss-hover)] hover:text-[var(--dnss-ink-1)]'
+                                    title={t('app.toggleTheme')}
+                                    onClick={() => {
+                                        const currentResolved =
+                                            getResolvedTheme(theme);
+                                        handleThemeChange(
+                                            currentResolved === 'dark'
+                                                ? 'light'
+                                                : 'dark'
+                                        );
+                                    }}
+                                    className="inline-flex h-7 items-center gap-1.5 rounded-lg px-2 text-[length:var(--dnss-fs-xs)] text-[var(--dnss-ink-2)] hover:bg-[var(--dnss-hover)] hover:text-[var(--dnss-ink-1)]"
+                                >
+                                    <ThemeIcon
+                                        mode={theme}
+                                        className="size-4 shrink-0"
+                                    />
+                                </button>
+
+                                <button
+                                    type="button"
+                                    title={t('app.toggleLang')}
+                                    onClick={() =>
+                                        handleLangChange(
+                                            lang === 'en' ? 'fa' : 'en'
+                                        )
+                                    }
+                                    className="inline-flex h-7 items-center rounded-lg px-2 text-[length:var(--dnss-fs-2xs)] font-semibold uppercase text-[var(--dnss-ink-2)] hover:bg-[var(--dnss-hover)] hover:text-[var(--dnss-ink-1)]"
+                                >
+                                    {lang === 'en' ? 'FA' : 'EN'}
+                                </button>
+                            </div>
+                        </div>
+                    </aside>
+
+                    {/* Main Content Column */}
+                    <div className="relative flex min-w-0 flex-1 flex-col">
+                        {(busy || refreshing) && (
+                            <div
+                                className="loading-bar absolute inset-x-0 top-0 z-20"
+                                role="status"
+                                aria-label={t('app.working')}
+                            />
+                        )}
+
+                        <main className="dnss-scroll-stable min-h-0 flex-1 overflow-y-auto px-6 py-5 @max-[680px]:px-3.5 @max-[680px]:py-3.5">
+                            <div
+                                hidden={page !== 'home'}
+                                className={page === 'home' ? 'page-fade' : ''}
+                            >
+                                <HomePage
+                                    i18n={i18n}
+                                    activeAdapter={activeAdapter}
+                                    activeDns={activeDns}
+                                    isCustomDnsActive={isCustomDnsActive}
+                                    rememberedServers={rememberedServers}
+                                    adapters={adapters}
+                                    busy={busy}
+                                    toggleBusy={
+                                        busyOp?.kind === 'apply' &&
+                                        busyOp.id === 'home-circle'
+                                    }
+                                    flushBusy={busyOp?.kind === 'flush'}
+                                    refreshing={refreshing}
+                                    onToggleDns={handleToggleHomeDns}
+                                    onFlushDns={handleFlushDns}
+                                    refreshStatus={refreshStatus}
+                                    onOpenServers={() => setPage('servers')}
+                                    dnsNameLookup={dnsNameLookup}
+                                />
+                            </div>
+                            <div
+                                hidden={page !== 'servers'}
+                                className={
+                                    page === 'servers' ? 'page-fade' : ''
+                                }
+                            >
+                                <ServersPage
+                                    i18n={i18n}
+                                    adapters={adapters}
+                                    activeAdapter={activeAdapter}
+                                    activeAdapterName={
+                                        activeAdapter?.name ?? null
+                                    }
+                                    activeDns={activeDns}
+                                    configs={configs}
+                                    persistConfigs={persistConfigs}
+                                    hiddenPresets={hiddenPresets}
+                                    onHidePreset={hidePreset}
+                                    benchmarkTarget={benchmarkTarget}
+                                    onBenchmarkTargetChange={setBenchmarkTarget}
+                                    busy={busy}
+                                    applyBusyId={
+                                        busyOp?.kind === 'apply'
+                                            ? busyOp.id
+                                            : null
+                                    }
+                                    onApply={handleApplyServers}
+                                    showToast={showToast}
+                                />
+                            </div>
+                            <div
+                                hidden={page !== 'settings'}
+                                className={
+                                    page === 'settings' ? 'page-fade' : ''
+                                }
+                            >
+                                <SettingsPage
+                                    i18n={i18n}
+                                    onLangChange={handleLangChange}
+                                    theme={theme}
+                                    onThemeChange={handleThemeChange}
+                                    fontFamily={fontFamily}
+                                    onFontFamilyChange={setFontFamily}
+                                    fontSize={fontSize}
+                                    onFontSizeChange={setFontSize}
+                                    accent={accent}
+                                    onAccentChange={handleAccentChange}
+                                    busy={busy}
+                                    resetBusy={busyOp?.kind === 'reset-all'}
+                                    onResetAll={handleResetAll}
+                                    hiddenPresets={hiddenPresets}
+                                    onRestorePresets={restorePresets}
+                                    onExportSettings={handleExportSettings}
+                                    onImportSettings={handleImportSettings}
+                                    showToast={showToast}
+                                />
+                            </div>
+                        </main>
+
+                        {toastMessage && (
+                            <div className="pointer-events-none absolute inset-x-0 bottom-4 z-40 flex justify-center px-4">
+                                <div
+                                    className={`dnss-popover toast-pop pointer-events-auto flex items-center gap-2 rounded-xl px-3.5 py-2 text-[length:var(--dnss-fs-sm)] font-medium ${
+                                        toastIsError
+                                            ? 'border-[var(--dnss-error)]/40 text-[var(--dnss-error)]'
+                                            : 'border-[var(--dnss-accent)]/40 text-[var(--dnss-ink-1)]'
                                     }`}
                                 >
-                                    <Icon
-                                        className={`size-4 shrink-0 ${
-                                            active
-                                                ? 'text-[var(--dnss-accent)]'
-                                                : 'text-[var(--dnss-ink-3)]'
-                                        }`}
-                                    />
-                                    <span className="truncate">
-                                        {item.label}
-                                    </span>
-                                </button>
-                            );
-                        })}
-                    </nav>
-
-                    {/* Compact Status & Utility Footer */}
-                    <div className="border-t border-[var(--dnss-border)] p-2.5">
-                        <div
-                            className={`mb-2 flex items-center gap-2 rounded-xl border px-2.5 py-1.5 transition-colors ${
-                                isCustomDnsActive
-                                    ? 'border-[var(--dnss-accent)]/25 bg-[var(--dnss-accent-soft)] text-[var(--dnss-accent-text)]'
-                                    : 'border-[var(--dnss-border)] bg-[var(--dnss-surface)] text-[var(--dnss-ink-2)]'
-                            }`}
-                        >
-                            <span
-                                className={`size-2 shrink-0 rounded-full ${
-                                    isCustomDnsActive
-                                        ? 'bg-[var(--dnss-accent)]'
-                                        : 'bg-[var(--dnss-ink-3)]'
-                                }`}
-                            />
-                            <span className="truncate text-[length:var(--dnss-fs-xs)] font-semibold">
-                                {activeProviderName}
-                            </span>
-                        </div>
-
-                        <div className="flex items-center justify-between gap-1">
-                            <button
-                                type="button"
-                                title={t('app.toggleTheme')}
-                                onClick={() => {
-                                    const currentResolved =
-                                        getResolvedTheme(theme);
-                                    handleThemeChange(
-                                        currentResolved === 'dark'
-                                            ? 'light'
-                                            : 'dark'
-                                    );
-                                }}
-                                className="inline-flex h-7 items-center gap-1.5 rounded-lg px-2 text-[length:var(--dnss-fs-xs)] text-[var(--dnss-ink-2)] hover:bg-[var(--dnss-hover)] hover:text-[var(--dnss-ink-1)]"
-                            >
-                                <ThemeIcon
-                                    mode={theme}
-                                    className="size-4 shrink-0"
-                                />
-                            </button>
-
-                            <button
-                                type="button"
-                                title={t('app.toggleLang')}
-                                onClick={() =>
-                                    handleLangChange(
-                                        lang === 'en' ? 'fa' : 'en'
-                                    )
-                                }
-                                className="inline-flex h-7 items-center rounded-lg px-2 text-[length:var(--dnss-fs-2xs)] font-semibold uppercase text-[var(--dnss-ink-2)] hover:bg-[var(--dnss-hover)] hover:text-[var(--dnss-ink-1)]"
-                            >
-                                {lang === 'en' ? 'FA' : 'EN'}
-                            </button>
-                        </div>
-                    </div>
-                </aside>
-
-                {/* Main Content Column */}
-                <div className="relative flex min-w-0 flex-1 flex-col">
-                    {(busy || refreshing) && (
-                        <div
-                            className="loading-bar absolute inset-x-0 top-0 z-20"
-                            role="status"
-                            aria-label={t('app.working')}
-                        />
-                    )}
-
-                    <main className="dnss-scroll-stable min-h-0 flex-1 overflow-y-auto px-6 py-5 @max-[680px]:px-3.5 @max-[680px]:py-3.5">
-                        <div
-                            hidden={page !== 'home'}
-                            className={page === 'home' ? 'page-fade' : ''}
-                        >
-                            <HomePage
-                                i18n={i18n}
-                                activeAdapter={activeAdapter}
-                                activeDns={activeDns}
-                                isCustomDnsActive={isCustomDnsActive}
-                                rememberedServers={rememberedServers}
-                                adapters={adapters}
-                                busy={busy}
-                                toggleBusy={
-                                    busyOp?.kind === 'apply' &&
-                                    busyOp.id === 'home-circle'
-                                }
-                                flushBusy={busyOp?.kind === 'flush'}
-                                refreshing={refreshing}
-                                onToggleDns={handleToggleHomeDns}
-                                onFlushDns={handleFlushDns}
-                                refreshStatus={refreshStatus}
-                                onOpenServers={() => setPage('servers')}
-                                dnsNameLookup={dnsNameLookup}
-                            />
-                        </div>
-                        <div
-                            hidden={page !== 'servers'}
-                            className={page === 'servers' ? 'page-fade' : ''}
-                        >
-                            <ServersPage
-                                i18n={i18n}
-                                adapters={adapters}
-                                activeAdapter={activeAdapter}
-                                activeAdapterName={activeAdapter?.name ?? null}
-                                activeDns={activeDns}
-                                configs={configs}
-                                persistConfigs={persistConfigs}
-                                hiddenPresets={hiddenPresets}
-                                onHidePreset={hidePreset}
-                                busy={busy}
-                                applyBusyId={
-                                    busyOp?.kind === 'apply' ? busyOp.id : null
-                                }
-                                onApply={handleApplyServers}
-                                showToast={showToast}
-                            />
-                        </div>
-                        <div
-                            hidden={page !== 'settings'}
-                            className={page === 'settings' ? 'page-fade' : ''}
-                        >
-                            <SettingsPage
-                                i18n={i18n}
-                                onLangChange={handleLangChange}
-                                theme={theme}
-                                onThemeChange={handleThemeChange}
-                                fontFamily={fontFamily}
-                                onFontFamilyChange={setFontFamily}
-                                fontSize={fontSize}
-                                onFontSizeChange={setFontSize}
-                                accent={accent}
-                                onAccentChange={setAccent}
-                                busy={busy}
-                                resetBusy={busyOp?.kind === 'reset-all'}
-                                onResetAll={handleResetAll}
-                                hiddenPresets={hiddenPresets}
-                                onRestorePresets={restorePresets}
-                            />
-                        </div>
-                    </main>
-
-                    {toastMessage && (
-                        <div className="pointer-events-none absolute inset-x-0 bottom-4 z-40 flex justify-center px-4">
-                            <div
-                                className={`dnss-popover toast-pop pointer-events-auto flex items-center gap-2 rounded-xl px-3.5 py-2 text-[length:var(--dnss-fs-sm)] font-medium ${
-                                    toastIsError
-                                        ? 'border-[var(--dnss-error)]/40 text-[var(--dnss-error)]'
-                                        : 'border-[var(--dnss-accent)]/40 text-[var(--dnss-ink-1)]'
-                                }`}
-                            >
-                                {toastIsError ? (
-                                    <ExclamationTriangleIcon className="size-4 shrink-0 text-[var(--dnss-error)]" />
-                                ) : (
-                                    <CheckCircleIcon className="size-4 shrink-0 text-[var(--dnss-accent)]" />
-                                )}
-                                <span>{toastMessage}</span>
+                                    {toastIsError ? (
+                                        <ExclamationTriangleIcon className="size-4 shrink-0 text-[var(--dnss-error)]" />
+                                    ) : (
+                                        <CheckCircleIcon className="size-4 shrink-0 text-[var(--dnss-accent)]" />
+                                    )}
+                                    <span>{toastMessage}</span>
+                                </div>
                             </div>
-                        </div>
-                    )}
+                        )}
+                    </div>
                 </div>
             </div>
-        </div>
+        </PortalContext.Provider>
     );
 }

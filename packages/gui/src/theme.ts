@@ -217,11 +217,15 @@ export function getResolvedTheme(mode: ThemeMode): 'light' | 'dark' {
     return mode === 'system' ? (prefersDark ? 'dark' : 'light') : mode;
 }
 
-export function applyTheme(mode: ThemeMode): void {
+export function applyTheme(
+    mode: ThemeMode,
+    target: HTMLElement = document.documentElement,
+    accentHex?: string
+): void {
     const resolved = getResolvedTheme(mode);
-    document.documentElement.setAttribute('data-theme', resolved);
+    target.setAttribute('data-theme', resolved);
     // Re-compute accent palette whenever light/dark polarity changes.
-    applyAccent(loadAccent(), resolved);
+    applyAccent(accentHex ?? loadAccent(), resolved, target);
 }
 
 export function watchSystemTheme(onChange: () => void): () => void {
@@ -246,12 +250,12 @@ export function saveFontFamily(font: FontFamilyId): void {
     localStorage.setItem(FONT_KEY, font);
 }
 
-export function applyFontFamily(font: FontFamilyId): void {
+export function applyFontFamily(
+    font: FontFamilyId,
+    target: HTMLElement = document.documentElement
+): void {
     const option = FONT_OPTIONS.find((f) => f.id === font) ?? FONT_OPTIONS[0];
-    document.documentElement.style.setProperty(
-        '--dnss-font-sans',
-        option.stack
-    );
+    target.style.setProperty('--dnss-font-sans', option.stack);
 }
 
 export function loadFontSize(): FontSizePx {
@@ -266,13 +270,13 @@ export function saveFontSize(size: FontSizePx): void {
     localStorage.setItem(FONT_SIZE_KEY, String(size));
 }
 
-export function applyFontSize(size: FontSizePx): void {
+export function applyFontSize(
+    size: FontSizePx,
+    target: HTMLElement = document.documentElement
+): void {
     const scale = size === 12 ? 0.87 : size === 16 ? 1.13 : 1;
-    document.documentElement.style.setProperty(
-        '--dnss-text-scale',
-        String(scale)
-    );
-    document.documentElement.setAttribute('data-dnss-size', String(size));
+    target.style.setProperty('--dnss-text-scale', String(scale));
+    target.setAttribute('data-dnss-size', String(size));
 }
 
 /* --------------------------------------------------------------------------
@@ -294,14 +298,13 @@ export function saveAccent(hex: string): void {
 
 export function applyAccent(
     hex: string,
-    resolvedTheme?: 'light' | 'dark'
+    resolvedTheme?: 'light' | 'dark',
+    target: HTMLElement = document.documentElement
 ): void {
     const safe = isValidHex(hex) ? hex.toLowerCase() : DEFAULT_ACCENT_HEX;
     const mode =
         resolvedTheme ??
-        (document.documentElement.getAttribute('data-theme') === 'light'
-            ? 'light'
-            : 'dark');
+        (target.getAttribute('data-theme') === 'light' ? 'light' : 'dark');
 
     const { h, s, l } = hexToHsl(safe);
     const sat = Math.max(38, Math.min(95, s));
@@ -354,7 +357,7 @@ export function applyAccent(
     const softAlpha = mode === 'dark' ? 0.14 : 0.11;
     const glowAlpha = mode === 'dark' ? 0.34 : 0.22;
 
-    const root = document.documentElement.style;
+    const root = target.style;
     root.setProperty('--dnss-accent', mainHex);
     root.setProperty('--dnss-accent-hover', hoverHex);
     root.setProperty('--dnss-accent-text', textHex);

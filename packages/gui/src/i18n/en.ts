@@ -67,6 +67,12 @@ const en = {
     'toast.updated': 'Updated "{name}"',
     'toast.added': 'Added "{name}"',
     'toast.presetRemoved': 'Removed "{name}" from the presets',
+    'toast.settingsExported': 'Exported settings.json',
+    'toast.settingsCopied': 'Copied settings.json to clipboard',
+    'toast.settingsImported': 'Imported settings ({count} saved server(s))',
+    'toast.settingsImportFailed': 'Import failed: {error}',
+    'toast.settingsExportFailed': 'Export failed: {error}',
+    'toast.settingsCopyFailed': 'Could not copy to clipboard',
 
     // Home
     'home.customActive': 'Custom DNS active',
@@ -160,6 +166,17 @@ const en = {
         'Adjust text size across the desktop app and tray popover.',
     'settings.language': 'Language',
     'settings.languageHint': 'Applies immediately without restarting.',
+    'settings.backup': 'Settings & backup (settings.json)',
+    'settings.backupDesc':
+        'Export, import, or edit your unified VS Code-style settings.json — synced with the CLI (~/.dnss/settings.json) including saved DNS servers.',
+    'settings.exportJson': 'Export JSON',
+    'settings.importJson': 'Import JSON',
+    'settings.editJson': 'Open settings.json',
+    'settings.jsonModalTitle': 'settings.json',
+    'settings.jsonModalHint':
+        'Edit or paste a DNSS settings.json file. Changes apply immediately and sync with the CLI.',
+    'settings.copyJson': 'Copy',
+    'settings.applyJson': 'Apply & Save',
     'settings.maintenance': 'Network maintenance',
     'settings.maintenanceDesc':
         'Remove static DNS servers from every adapter and return to automatic DHCP.',

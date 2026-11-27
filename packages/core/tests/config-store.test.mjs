@@ -15,10 +15,10 @@ function runInIsolatedHome(fnString) {
             import fs from 'node:fs';
             import path from 'node:path';
             import assert from 'node:assert/strict';
-            import { loadConfigs, saveConfigs, upsertConfig, removeConfig, getConfigPath } from '../dist/index.js';
+            import { loadConfigs, saveConfigs, upsertConfig, removeConfig, getConfigPath, getSettingsPath, loadSettings, saveSettings, exportSettingsJson, importSettingsJson } from '../dist/index.js';
 
             const run = ${fnString};
-            await run({ fs, path, assert, loadConfigs, saveConfigs, upsertConfig, removeConfig, getConfigPath, tmpDir: ${JSON.stringify(tmpDir)} });
+            await run({ fs, path, assert, loadConfigs, saveConfigs, upsertConfig, removeConfig, getConfigPath, getSettingsPath, loadSettings, saveSettings, exportSettingsJson, importSettingsJson, tmpDir: ${JSON.stringify(tmpDir)} });
         `;
         execFileSync(process.execPath, ['--input-type=module', '-e', script], {
             cwd: testsDir,
@@ -105,5 +105,49 @@ test('upsertConfig trims names and deduplicates case-insensitively', () => {
         removeConfig('   cloudflare   ');
         configs = loadConfigs();
         assert.equal(configs.length, 0);
+    }`);
+});
+
+test('settings.json round-trips, syncs with configs.json, and rejects invalid imports', () => {
+    runInIsolatedHome(`async ({ fs, assert, loadConfigs, loadSettings, exportSettingsJson, importSettingsJson, getSettingsPath }) => {
+        const imported = importSettingsJson(JSON.stringify({
+            'dnss.schemaVersion': 1,
+            'appearance.theme': 'dark',
+            'appearance.accent': '#3B82F6',
+            'appearance.fontFamily': 'inter',
+            'appearance.fontSize': 16,
+            'general.language': 'fa',
+            'benchmark.target': 'https://example.com',
+            'presets.hidden': ['google', 'google'],
+            'dns.servers': [
+                { name: 'Office DNS', primary: '10.0.0.1', alternative: '10.0.0.2' },
+                { name: 'Office DNS 2', primary: '10.0.0.3' }
+            ]
+        }));
+
+        assert.equal(imported['appearance.theme'], 'dark');
+        assert.equal(imported['appearance.accent'], '#3b82f6');
+        assert.equal(imported['appearance.fontSize'], 16);
+        assert.equal(imported['general.language'], 'fa');
+        assert.deepEqual(imported['presets.hidden'], ['google']);
+        assert.equal(imported['dns.servers'].length, 2);
+        assert.equal(imported['dns.servers'][0].id, 'office-dns');
+        assert.ok(fs.existsSync(getSettingsPath()), 'settings.json must be written');
+
+        // configs.json stays synced with dns.servers
+        const configs = loadConfigs();
+        assert.equal(configs.length, 2);
+        assert.equal(configs[0].name, 'Office DNS');
+
+        // Export returns valid JSON matching loadSettings()
+        const exported = JSON.parse(exportSettingsJson());
+        assert.deepEqual(exported, loadSettings());
+
+        // Reject invalid imports without clobbering existing settings
+        assert.throws(() => importSettingsJson('[]'), /object/i);
+        assert.throws(() => importSettingsJson(JSON.stringify({
+            'dns.servers': [{ name: 'Bad', primary: '999.999.999.999' }]
+        })), /invalid/i);
+        assert.equal(loadSettings()['dns.servers'].length, 2);
     }`);
 });

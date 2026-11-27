@@ -7,6 +7,7 @@ import {
     type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { usePortalContainer } from './PortalContext';
 
 const GAP = 6;
 const EDGE = 8;
@@ -24,11 +25,22 @@ function computePosition(
     anchor: HTMLElement,
     panel: HTMLElement,
     placement: 'top' | 'bottom',
-    matchAnchorWidth: boolean
+    matchAnchorWidth: boolean,
+    container: HTMLElement | null
 ): Position | null {
-    const a = anchor.getBoundingClientRect();
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
+    const rawAnchor = anchor.getBoundingClientRect();
+    const cRect = container ? container.getBoundingClientRect() : null;
+    const a = cRect
+        ? {
+              top: rawAnchor.top - cRect.top,
+              bottom: rawAnchor.bottom - cRect.top,
+              left: rawAnchor.left - cRect.left,
+              right: rawAnchor.right - cRect.left,
+              width: rawAnchor.width,
+          }
+        : rawAnchor;
+    const vw = container ? container.clientWidth : window.innerWidth;
+    const vh = container ? container.clientHeight : window.innerHeight;
     const maxWidth = Math.max(0, vw - EDGE * 2);
     const rawWidth = matchAnchorWidth
         ? Math.max(a.width, panel.offsetWidth)
@@ -37,7 +49,8 @@ function computePosition(
     const pHeight = panel.offsetHeight;
     if (pWidth === 0 || pHeight === 0) return null;
 
-    const rtl = document.documentElement.dir === 'rtl';
+    const dirAttr = container?.dir || document.documentElement.dir;
+    const rtl = dirAttr === 'rtl';
 
     const fitsAbove = a.top - EDGE >= pHeight;
     const fitsBelow = vh - EDGE - a.bottom >= pHeight;
@@ -91,6 +104,7 @@ export default function FloatingPanel({
     className = '',
     children,
 }: FloatingPanelProps) {
+    const portalContainer = usePortalContainer();
     const panelRef = useRef<HTMLDivElement | null>(null);
     const [mounted, setMounted] = useState(open && Boolean(anchor));
     const [closing, setClosing] = useState(false);
@@ -126,7 +140,8 @@ export default function FloatingPanel({
             effectiveAnchor,
             panel,
             placement,
-            matchAnchorWidth
+            matchAnchorWidth,
+            portalContainer
         );
         if (!next) return;
         setPos((prev) =>
@@ -139,7 +154,7 @@ export default function FloatingPanel({
                 ? prev
                 : next
         );
-    }, [effectiveAnchor, placement, matchAnchorWidth]);
+    }, [effectiveAnchor, placement, matchAnchorWidth, portalContainer]);
 
     useLayoutEffect(() => {
         if (!mounted) return;
@@ -166,15 +181,17 @@ export default function FloatingPanel({
 
     if (!mounted || !effectiveAnchor) return null;
 
+    const posClass = portalContainer ? 'absolute' : 'fixed';
+
     return createPortal(
         <>
             <div
-                className={`fixed inset-0 z-40 ${closing ? 'pointer-events-none' : ''}`}
+                className={`${posClass} inset-0 z-40 ${closing ? 'pointer-events-none' : ''}`}
                 onClick={onClose}
             />
             <div
                 ref={panelRef}
-                className={`${closing ? 'panel-exit' : 'panel-enter'} fixed z-50 ${className}`}
+                className={`${closing ? 'panel-exit' : 'panel-enter'} ${posClass} z-50 ${className}`}
                 style={
                     pos
                         ? {
@@ -186,13 +203,15 @@ export default function FloatingPanel({
                           }
                         : {
                               visibility: 'hidden',
-                              maxWidth: `calc(100vw - ${EDGE * 2}px)`,
+                              maxWidth: portalContainer
+                                  ? `calc(100% - ${EDGE * 2}px)`
+                                  : `calc(100vw - ${EDGE * 2}px)`,
                           }
                 }
             >
                 {children}
             </div>
         </>,
-        document.body
+        portalContainer ?? document.body
     );
 }

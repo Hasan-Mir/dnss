@@ -31,9 +31,23 @@ export interface BenchmarkSample {
 }
 
 export interface DnsConfig {
+    id?: string;
     name: string;
     primary: string;
     alternative?: string;
+}
+
+export interface AppSettings {
+    'dnss.schemaVersion': number;
+    'appearance.theme': 'light' | 'dark' | 'system';
+    'appearance.accent': string;
+    'appearance.fontFamily':
+        'google-sans' | 'inter' | 'dm-sans' | 'manrope' | 'roboto';
+    'appearance.fontSize': 12 | 14 | 16;
+    'general.language': 'en' | 'fa';
+    'benchmark.target': string;
+    'presets.hidden': string[];
+    'dns.servers': DnsConfig[];
 }
 
 /** Adapters + default-route adapter + its DNS status, one round trip. */
@@ -120,6 +134,19 @@ export const api = {
 
     saveConfigs: (configs: DnsConfig[]): Promise<DnsConfig[]> =>
         invokeCommand<DnsConfig[]>('save_configs', { configs }),
+
+    /** Unified VS Code-style settings persisted in ~/.dnss/settings.json (shared with CLI). */
+    getSettings: (): Promise<AppSettings> =>
+        invokeCommand<AppSettings>('get_settings'),
+
+    saveSettings: (settings: AppSettings): Promise<AppSettings> =>
+        invokeCommand<AppSettings>('save_settings', { settings }),
+
+    exportSettingsJson: (): Promise<string> =>
+        invokeCommand<string>('export_settings_json'),
+
+    importSettingsJson: (json: string): Promise<AppSettings> =>
+        invokeCommand<AppSettings>('import_settings_json', { json }),
 
     /** Benchmark one DNS server against a target URL (UDP resolve + TCP connect). */
     benchmarkDns: (server: string, target: string): Promise<BenchmarkSample> =>

@@ -294,6 +294,36 @@ fn save_configs(
     Ok(saved)
 }
 
+#[tauri::command]
+fn get_settings() -> configs::AppSettings {
+    configs::load_settings()
+}
+
+#[tauri::command]
+fn save_settings(
+    app: tauri::AppHandle,
+    settings: configs::AppSettings,
+) -> Result<configs::AppSettings, String> {
+    let saved = configs::save_settings(settings)?;
+    let _ = app.emit(STATE_CHANGED_EVENT, ());
+    Ok(saved)
+}
+
+#[tauri::command]
+fn export_settings_json() -> Result<String, String> {
+    configs::export_settings_json()
+}
+
+#[tauri::command]
+fn import_settings_json(
+    app: tauri::AppHandle,
+    json: String,
+) -> Result<configs::AppSettings, String> {
+    let imported = configs::import_settings_json(&json)?;
+    let _ = app.emit(STATE_CHANGED_EVENT, ());
+    Ok(imported)
+}
+
 /// Show and focus the main window, optionally navigating it to a specific tab
 /// (`"home"`, `"servers"`, or `"settings"`), and hide the tray popover.
 #[tauri::command]
@@ -614,6 +644,10 @@ pub fn run() {
             flush_dns,
             get_configs,
             save_configs,
+            get_settings,
+            save_settings,
+            export_settings_json,
+            import_settings_json,
             benchmark_dns,
             show_main_window,
             hide_tray_window,

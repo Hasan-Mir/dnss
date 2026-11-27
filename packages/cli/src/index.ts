@@ -16,6 +16,7 @@
 
 import inquirer from 'inquirer';
 import chalk from 'chalk';
+import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
 import { execFileSync, execSync } from 'node:child_process';
@@ -27,9 +28,14 @@ import {
     type DnsPreset,
     type OsType,
     getOsType,
+    exportSettingsJson,
+    getSettingsPath,
+    importSettingsJson,
     loadConfigs,
+    loadSettings,
     removeConfig,
     saveConfigs,
+    saveSettings,
     validateIPv4,
 } from '@seymi/dnss-core';
 
@@ -1582,16 +1588,25 @@ async function showCurrentDNSConfigsFlow(): Promise<boolean> {
  * Flow for benchmarking the built-in DNS presets.
  */
 async function benchmarkDNSFlow(): Promise<boolean> {
+    const settings = loadSettings();
     const { target } = await inquirer.prompt([
         {
             type: 'input',
             name: 'target',
             message: 'Target URL used for the benchmark:',
-            default: 'https://www.cloudflare.com',
+            default: settings['benchmark.target'],
             validate: (input: string) =>
                 input.trim() !== '' ? true : 'Target URL cannot be empty.',
         },
     ]);
+    const trimmedTarget = target.trim();
+    if (trimmedTarget !== settings['benchmark.target']) {
+        try {
+            saveSettings({ ...settings, 'benchmark.target': trimmedTarget });
+        } catch {
+            // Best effort only: do not abort benchmark on settings write error.
+        }
+    }
     console.log(
         chalk.greenBright(
             'Benchmarking saved configurations and DNS presets (this can take a while)...'
@@ -1599,15 +1614,17 @@ async function benchmarkDNSFlow(): Promise<boolean> {
     );
     // Saved configurations are benchmarked alongside the built-in presets:
     // users mostly care about *their* servers (e.g. a local ISP resolver).
-    const saved: DnsPreset[] = loadConfigs().map((config) => ({
-        id: `saved:${config.name}`,
+    const hiddenSet = new Set(settings['presets.hidden']);
+    const visiblePresets = DNS_PRESETS.filter((p) => !hiddenSet.has(p.id));
+    const saved: DnsPreset[] = settings['dns.servers'].map((config) => ({
+        id: `saved:${config.id ?? config.name}`,
         name: config.name,
         primary: config.primary,
         alternative: config.alternative,
     }));
     const results = await benchmarkPresets(
-        [...saved, ...DNS_PRESETS],
-        target.trim()
+        [...saved, ...visiblePresets],
+        trimmedTarget
     );
     console.table(
         results.map((result) => ({
@@ -1620,6 +1637,208 @@ async function benchmarkDNSFlow(): Promise<boolean> {
     );
     // The table is the output; the menu loop pauses so it stays readable.
     return true;
+}
+
+/**
+ * Flow for importing and exporting the unified VS Code-style settings.json
+ * shared between the CLI and desktop GUI.
+ */
+const MAX_CLI_SETTINGS_BYTES = 512 * 1024;
+
+function readSettingsFileSafely(filePath: string): string {
+    const flags = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0);
+    const fd = fs.openSync(filePath, flags);
+    try {
+        const stat = fs.fstatSync(fd);
+        if (!stat.isFile()) {
+            throw new Error(
+                'Path must be a regular file (not a directory, symlink, or special file).'
+            );
+        }
+        if (stat.size > MAX_CLI_SETTINGS_BYTES) {
+            throw new Error('Settings file exceeds 512 KiB size limit.');
+        }
+        const buf = Buffer.alloc(MAX_CLI_SETTINGS_BYTES + 1);
+        let totalRead = 0;
+        while (totalRead < buf.length) {
+            const n = fs.readSync(
+                fd,
+                buf,
+                totalRead,
+                buf.length - totalRead,
+                totalRead
+            );
+            if (n === 0) break;
+            totalRead += n;
+        }
+        if (totalRead > MAX_CLI_SETTINGS_BYTES) {
+            throw new Error('Settings file exceeds 512 KiB size limit.');
+        }
+        return buf.subarray(0, totalRead).toString('utf-8');
+    } finally {
+        fs.closeSync(fd);
+    }
+}
+
+function writeSettingsExportSafely(destPath: string, content: string): void {
+    try {
+        const stat = fs.lstatSync(destPath);
+        if (stat.isSymbolicLink()) {
+            throw new Error('Refusing to write through a symbolic link.');
+        }
+        if (stat.isDirectory()) {
+            throw new Error('Destination path is a directory.');
+        }
+    } catch (err) {
+        if ((err as NodeJS.ErrnoException | undefined)?.code !== 'ENOENT') {
+            throw err;
+        }
+    }
+    const dir = path.dirname(destPath);
+    const base = path.basename(destPath);
+    const tmpPath = path.join(
+        dir,
+        `.${base}.${process.pid}.${Math.random().toString(36).slice(2, 10)}.tmp`
+    );
+    const fd = fs.openSync(tmpPath, 'wx', 0o600);
+    try {
+        const data = Buffer.from(content, 'utf-8');
+        let written = 0;
+        while (written < data.length) {
+            const n = fs.writeSync(fd, data, written, data.length - written);
+            if (n === 0) {
+                throw new Error('Short write while exporting settings.');
+            }
+            written += n;
+        }
+        fs.fsyncSync(fd);
+        const isRoot =
+            typeof process.getuid === 'function' && process.getuid() === 0;
+        const uid = Number(process.env.SUDO_UID);
+        const gid = Number(process.env.SUDO_GID);
+        if (
+            isRoot &&
+            process.env.SUDO_UID &&
+            process.env.SUDO_GID &&
+            Number.isInteger(uid) &&
+            Number.isInteger(gid)
+        ) {
+            try {
+                fs.fchownSync(fd, uid, gid);
+            } catch {
+                // Best effort only.
+            }
+        }
+    } catch (error) {
+        fs.closeSync(fd);
+        try {
+            fs.unlinkSync(tmpPath);
+        } catch {
+            // Ignore cleanup failure.
+        }
+        throw error;
+    }
+    fs.closeSync(fd);
+    try {
+        fs.renameSync(tmpPath, destPath);
+    } catch (error) {
+        try {
+            fs.unlinkSync(tmpPath);
+        } catch {
+            // Ignore cleanup failure.
+        }
+        throw error;
+    }
+}
+
+async function settingsSyncFlow(): Promise<boolean> {
+    console.log(chalk.gray(`Unified settings file: ${getSettingsPath()}`));
+    const { action } = await inquirer.prompt([
+        {
+            type: 'list',
+            name: 'action',
+            message: 'Settings & Backup (settings.json):',
+            choices: [
+                { name: 'Export settings.json to a file', value: 'export' },
+                { name: 'Import settings.json from a file', value: 'import' },
+                { name: 'View current settings.json', value: 'view' },
+                new inquirer.Separator(),
+                { name: 'Back to main menu', value: 'back' },
+            ],
+        },
+    ]);
+
+    if (action === 'back') {
+        return false;
+    }
+
+    if (action === 'view') {
+        console.log(exportSettingsJson());
+        return true;
+    }
+
+    if (action === 'export') {
+        const { filePath } = await inquirer.prompt([
+            {
+                type: 'input',
+                name: 'filePath',
+                message: 'Export destination path:',
+                default: path.join(process.cwd(), 'dnss-settings.json'),
+                validate: (input: string) =>
+                    input.trim() !== '' ? true : 'File path cannot be empty.',
+            },
+        ]);
+        const dest = path.resolve(filePath.trim());
+        try {
+            writeSettingsExportSafely(dest, exportSettingsJson() + '\n');
+            console.log(chalk.green(`✔ Exported settings.json to ${dest}`));
+        } catch (error) {
+            console.error(
+                chalk.red(`✖ Failed to export settings: ${String(error)}`)
+            );
+        }
+        return true;
+    }
+
+    if (action === 'import') {
+        const { filePath } = await inquirer.prompt([
+            {
+                type: 'input',
+                name: 'filePath',
+                message: 'Path to settings.json to import:',
+                validate: (input: string) => {
+                    const trimmed = input.trim();
+                    if (!trimmed) return 'File path cannot be empty.';
+                    try {
+                        const st = fs.lstatSync(path.resolve(trimmed));
+                        if (st.isSymbolicLink() || !st.isFile()) {
+                            return 'Path must be a regular file (not a directory or symlink).';
+                        }
+                    } catch {
+                        return 'File does not exist.';
+                    }
+                    return true;
+                },
+            },
+        ]);
+        const src = path.resolve(filePath.trim());
+        try {
+            const raw = readSettingsFileSafely(src);
+            const imported = importSettingsJson(raw);
+            console.log(
+                chalk.green(
+                    `✔ Imported settings.json (${imported['dns.servers'].length} custom server(s), theme: ${imported['appearance.theme']}, language: ${imported['general.language']}).`
+                )
+            );
+        } catch (error) {
+            console.error(
+                chalk.red(`✖ Failed to import settings: ${String(error)}`)
+            );
+        }
+        return true;
+    }
+
+    return false;
 }
 
 function printBanner() {
@@ -1671,6 +1890,10 @@ async function mainMenu() {
                         name: 'Benchmark DNS servers',
                         value: 'benchmark',
                     },
+                    {
+                        name: 'Import / Export settings (settings.json)',
+                        value: 'settingsSync',
+                    },
                     { name: 'Exit', value: 'exit' },
                 ],
                 // Every option stays visible at once (no scrolling).
@@ -1699,6 +1922,9 @@ async function mainMenu() {
                 break;
             case 'benchmark':
                 shouldPause = await benchmarkDNSFlow();
+                break;
+            case 'settingsSync':
+                shouldPause = await settingsSyncFlow();
                 break;
             case 'exit':
                 exit = true;

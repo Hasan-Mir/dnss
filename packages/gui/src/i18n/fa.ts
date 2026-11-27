@@ -68,6 +68,12 @@ const fa: Dict = {
     'toast.updated': '«{name}» به‌روزرسانی شد',
     'toast.added': '«{name}» اضافه شد',
     'toast.presetRemoved': '«{name}» از سرورهای آماده پنهان شد',
+    'toast.settingsExported': 'فایل settings.json خروجی گرفته شد',
+    'toast.settingsCopied': 'متن settings.json در کلیپ‌بورد کپی شد',
+    'toast.settingsImported': 'تنظیمات وارد شد ({count} سرور ذخیره‌شده)',
+    'toast.settingsImportFailed': 'وارد کردن تنظیمات ناموفق بود: {error}',
+    'toast.settingsExportFailed': 'خروجی گرفتن ناموفق بود: {error}',
+    'toast.settingsCopyFailed': 'کپی در کلیپ‌بورد ناموفق بود',
 
     // Home
     'home.customActive': 'DNS سفارشی فعال است',
@@ -163,6 +169,17 @@ const fa: Dict = {
     'settings.language': 'زبان',
     'settings.languageHint':
         'بلافاصله اعمال می‌شود و نیازی به راه‌اندازی مجدد نیست.',
+    'settings.backup': 'پشتیبان‌گیری و انتقال (settings.json)',
+    'settings.backupDesc':
+        'خروجی، ورودی یا ویرایش مستقیم فایل یکپارچهٔ settings.json (مشترک بین GUI و CLI در ~/.dnss/settings.json) شامل تنظیمات ظاهری و DNSهای ذخیره‌شده.',
+    'settings.exportJson': 'خروجی JSON',
+    'settings.importJson': 'ورودی JSON',
+    'settings.editJson': 'باز کردن settings.json',
+    'settings.jsonModalTitle': 'settings.json',
+    'settings.jsonModalHint':
+        'تنظیمات را به‌صورت JSON ویرایش یا جای‌گذاری کنید. تغییرات بلافاصله اعمال شده و با CLI همگام می‌شوند.',
+    'settings.copyJson': 'کپی',
+    'settings.applyJson': 'اعمال و ذخیره',
     'settings.maintenance': 'نگهداری شبکه',
     'settings.maintenanceDesc':
         'تنظیمات دستی DNS را از همهٔ آداپتورها پاک می‌کند و آن‌ها را به DHCP خودکار برمی‌گرداند.',

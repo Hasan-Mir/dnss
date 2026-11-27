@@ -3,7 +3,14 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import type { DnsConfig } from './types';
+import type {
+    AppSettings,
+    DnsConfig,
+    FontFamilySetting,
+    FontSizeSetting,
+    LanguageSetting,
+    ThemeSetting,
+} from './types';
 import { validateIPv4 } from './validate';
 
 /**
@@ -69,15 +76,98 @@ function resolveHomeDir(): string {
 
 const CONFIG_DIR = path.join(resolveHomeDir(), '.dnss');
 const CONFIG_PATH = path.join(CONFIG_DIR, 'configs.json');
+const SETTINGS_PATH = path.join(CONFIG_DIR, 'settings.json');
 // Resolved the same way as CONFIG_PATH so that under sudo the invoking
 // user's legacy file is read (not root's).
 const LEGACY_CONFIG_PATH = path.join(resolveHomeDir(), '.dnschanger.json');
+
+export const SETTINGS_SCHEMA_VERSION = 1;
+const DEFAULT_BENCHMARK_TARGET = 'https://www.cloudflare.com';
+const DEFAULT_ACCENT_HEX = '#10b981';
+const VALID_THEMES = new Set<ThemeSetting>(['light', 'dark', 'system']);
+const VALID_FONTS = new Set<FontFamilySetting>([
+    'google-sans',
+    'inter',
+    'dm-sans',
+    'manrope',
+    'roboto',
+]);
+const VALID_FONT_SIZES = new Set<FontSizeSetting>([12, 14, 16]);
+const VALID_LANGUAGES = new Set<LanguageSetting>(['en', 'fa']);
+const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
+const MAX_SETTINGS_IMPORT_BYTES = 512 * 1024;
 
 export function getConfigPath(): string {
     return CONFIG_PATH;
 }
 
-export function loadConfigs(): DnsConfig[] {
+export function getSettingsPath(): string {
+    return SETTINGS_PATH;
+}
+
+export function getDefaultSettings(): AppSettings {
+    return {
+        'dnss.schemaVersion': SETTINGS_SCHEMA_VERSION,
+        'appearance.theme': 'system',
+        'appearance.accent': DEFAULT_ACCENT_HEX,
+        'appearance.fontFamily': 'google-sans',
+        'appearance.fontSize': 14,
+        'general.language': 'en',
+        'benchmark.target': DEFAULT_BENCHMARK_TARGET,
+        'presets.hidden': [],
+        'dns.servers': [],
+    };
+}
+
+function slugifyServerId(name: string, used: Set<string>): string {
+    const base =
+        name
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, '-')
+            .replace(/^-+|-+$/g, '')
+            .slice(0, 48)
+            .replace(/-+$/g, '') || 'server';
+    let candidate = base;
+    let suffix = 2;
+    while (used.has(candidate)) {
+        candidate = `${base}-${suffix++}`;
+    }
+    used.add(candidate);
+    return candidate;
+}
+
+function normalizeServerList(configs: DnsConfig[]): DnsConfig[] {
+    const usedIds = new Set<string>();
+    return configs.map((config) => {
+        const trimmedName = config.name.trim();
+        const rawId =
+            typeof config.id === 'string'
+                ? config.id
+                      .trim()
+                      .toLowerCase()
+                      .replace(/[^a-z0-9_-]+/g, '-')
+                      .replace(/^-+|-+$/g, '')
+                      .slice(0, 64)
+                      .replace(/-+$/g, '')
+                : '';
+        let id: string;
+        if (rawId && !usedIds.has(rawId)) {
+            usedIds.add(rawId);
+            id = rawId;
+        } else {
+            id = slugifyServerId(trimmedName, usedIds);
+        }
+        return {
+            id,
+            name: trimmedName,
+            primary: config.primary.trim(),
+            alternative: config.alternative?.trim() || undefined,
+        };
+    });
+}
+
+function loadConfigsFromLegacyStore(): DnsConfig[] {
     if (!fs.existsSync(CONFIG_PATH)) {
         return loadLegacyConfigs();
     }
@@ -105,6 +195,33 @@ export function loadConfigs(): DnsConfig[] {
         }
         return loadLegacyConfigs();
     }
+}
+
+export function loadConfigs(): DnsConfig[] {
+    if (fs.existsSync(SETTINGS_PATH)) {
+        try {
+            const data = fs.readFileSync(SETTINGS_PATH, 'utf-8').trim();
+            if (data) {
+                const parsed: unknown = JSON.parse(data);
+                if (
+                    typeof parsed === 'object' &&
+                    parsed !== null &&
+                    !Array.isArray(parsed) &&
+                    Array.isArray(
+                        (parsed as Record<string, unknown>)['dns.servers']
+                    )
+                ) {
+                    return normalizeSettingsRecord(
+                        parsed as Record<string, unknown>,
+                        false
+                    )['dns.servers'];
+                }
+            }
+        } catch {
+            // Fall back to configs.json below.
+        }
+    }
+    return loadConfigsFromLegacyStore();
 }
 
 /**
@@ -247,34 +364,253 @@ function writeConfigFile(data: string): void {
     atomicWriteFile(CONFIG_PATH, Buffer.from(data, 'utf-8'), true);
 }
 
+function writeJsonTarget(destPath: string, data: string): void {
+    ensureSafeConfigDir();
+    try {
+        if (fs.existsSync(destPath)) {
+            safeBackupCopy(destPath, `${destPath}.bak`);
+        }
+    } catch {
+        // Best effort only.
+    }
+    atomicWriteFile(destPath, Buffer.from(data, 'utf-8'), true);
+}
+
 export function saveConfigs(configs: DnsConfig[]): void {
-    // Persist trimmed values so the stored form equals what later gets
-    // handed to OS commands (mirrors the GUI's Rust config store).
-    const normalized = configs.map((config) => ({
-        name: config.name.trim(),
-        primary: config.primary.trim(),
-        alternative: config.alternative?.trim() || undefined,
-    }));
+    // Persist trimmed values with stable IDs so the stored form equals what
+    // later gets handed to OS commands and stays synced with settings.json.
+    const normalized = normalizeServerList(configs);
     writeConfigFile(JSON.stringify(normalized, null, 2));
+    // Mirror into settings.json without triggering a recursive configs write.
+    try {
+        const current = loadSettings({ skipLegacyConfigRead: true });
+        current['dns.servers'] = normalized;
+        writeJsonTarget(SETTINGS_PATH, JSON.stringify(current, null, 2));
+    } catch {
+        // Best effort only: configs.json is already safely persisted.
+    }
+}
+
+function normalizeSettingsRecord(
+    raw: Record<string, unknown>,
+    strict: boolean
+): AppSettings {
+    const defaults = getDefaultSettings();
+
+    const theme = raw['appearance.theme'];
+    const accent = raw['appearance.accent'];
+    const fontFamily = raw['appearance.fontFamily'];
+    const fontSize = raw['appearance.fontSize'];
+    const language = raw['general.language'];
+    const benchTarget = raw['benchmark.target'];
+    const hiddenRaw = raw['presets.hidden'];
+    const serversRaw = raw['dns.servers'];
+
+    let servers: DnsConfig[] = defaults['dns.servers'];
+    if (serversRaw !== undefined) {
+        if (!Array.isArray(serversRaw)) {
+            if (strict) {
+                throw new Error('"dns.servers" must be an array');
+            }
+        } else {
+            const valid: DnsConfig[] = [];
+            for (const entry of serversRaw) {
+                if (isDnsConfig(entry)) {
+                    valid.push(entry);
+                } else if (strict) {
+                    throw new Error(
+                        'One or more entries in "dns.servers" are invalid (check name and IPv4 addresses)'
+                    );
+                }
+            }
+            servers = normalizeServerList(valid);
+        }
+    }
+
+    let hiddenPresets: string[] = defaults['presets.hidden'];
+    if (Array.isArray(hiddenRaw)) {
+        const seen = new Set<string>();
+        hiddenPresets = [];
+        for (const item of hiddenRaw) {
+            if (typeof item === 'string') {
+                const trimmed = item.trim();
+                if (trimmed && trimmed.length <= 64 && !seen.has(trimmed)) {
+                    seen.add(trimmed);
+                    hiddenPresets.push(trimmed);
+                }
+            }
+        }
+    } else if (hiddenRaw !== undefined && strict) {
+        throw new Error('"presets.hidden" must be an array of preset IDs');
+    }
+
+    const cleanTarget =
+        typeof benchTarget === 'string' &&
+        benchTarget.trim().length > 0 &&
+        benchTarget.trim().length <= 2000
+            ? benchTarget.trim()
+            : defaults['benchmark.target'];
+
+    return {
+        'dnss.schemaVersion': SETTINGS_SCHEMA_VERSION,
+        'appearance.theme':
+            typeof theme === 'string' && VALID_THEMES.has(theme as ThemeSetting)
+                ? (theme as ThemeSetting)
+                : defaults['appearance.theme'],
+        'appearance.accent':
+            typeof accent === 'string' && HEX_COLOR_RE.test(accent.trim())
+                ? accent.trim().toLowerCase()
+                : defaults['appearance.accent'],
+        'appearance.fontFamily':
+            typeof fontFamily === 'string' &&
+            VALID_FONTS.has(fontFamily as FontFamilySetting)
+                ? (fontFamily as FontFamilySetting)
+                : defaults['appearance.fontFamily'],
+        'appearance.fontSize':
+            typeof fontSize === 'number' &&
+            VALID_FONT_SIZES.has(fontSize as FontSizeSetting)
+                ? (fontSize as FontSizeSetting)
+                : defaults['appearance.fontSize'],
+        'general.language':
+            typeof language === 'string' &&
+            VALID_LANGUAGES.has(language as LanguageSetting)
+                ? (language as LanguageSetting)
+                : defaults['general.language'],
+        'benchmark.target': cleanTarget,
+        'presets.hidden': hiddenPresets,
+        'dns.servers': servers,
+    };
+}
+
+export function loadSettings(opts?: {
+    skipLegacyConfigRead?: boolean;
+}): AppSettings {
+    if (!fs.existsSync(SETTINGS_PATH)) {
+        const defaults = getDefaultSettings();
+        if (!opts?.skipLegacyConfigRead) {
+            defaults['dns.servers'] = normalizeServerList(
+                loadConfigsFromLegacyStore()
+            );
+        }
+        return defaults;
+    }
+    try {
+        const data = fs.readFileSync(SETTINGS_PATH, 'utf-8').trim();
+        if (!data) {
+            const defaults = getDefaultSettings();
+            if (!opts?.skipLegacyConfigRead) {
+                defaults['dns.servers'] = normalizeServerList(
+                    loadConfigsFromLegacyStore()
+                );
+            }
+            return defaults;
+        }
+        const parsed: unknown = JSON.parse(data);
+        if (
+            typeof parsed !== 'object' ||
+            parsed === null ||
+            Array.isArray(parsed)
+        ) {
+            try {
+                safeBackupCopy(SETTINGS_PATH, `${SETTINGS_PATH}.corrupt`);
+            } catch {
+                // Best effort only.
+            }
+            const defaults = getDefaultSettings();
+            if (!opts?.skipLegacyConfigRead) {
+                defaults['dns.servers'] = normalizeServerList(
+                    loadConfigsFromLegacyStore()
+                );
+            }
+            return defaults;
+        }
+        const record = parsed as Record<string, unknown>;
+        const normalized = normalizeSettingsRecord(record, false);
+        if (
+            !Array.isArray(record['dns.servers']) &&
+            !opts?.skipLegacyConfigRead
+        ) {
+            normalized['dns.servers'] = normalizeServerList(
+                loadConfigsFromLegacyStore()
+            );
+        }
+        return normalized;
+    } catch {
+        try {
+            safeBackupCopy(SETTINGS_PATH, `${SETTINGS_PATH}.corrupt`);
+        } catch {
+            // Best effort only.
+        }
+        const defaults = getDefaultSettings();
+        if (!opts?.skipLegacyConfigRead) {
+            defaults['dns.servers'] = normalizeServerList(
+                loadConfigsFromLegacyStore()
+            );
+        }
+        return defaults;
+    }
+}
+
+export function saveSettings(settings: AppSettings): AppSettings {
+    const normalized = normalizeSettingsRecord(
+        settings as unknown as Record<string, unknown>,
+        true
+    );
+    writeJsonTarget(SETTINGS_PATH, JSON.stringify(normalized, null, 2));
+    writeConfigFile(JSON.stringify(normalized['dns.servers'], null, 2));
+    return normalized;
+}
+
+export function exportSettingsJson(): string {
+    return JSON.stringify(loadSettings(), null, 2);
+}
+
+export function importSettingsJson(rawJson: string): AppSettings {
+    if (Buffer.byteLength(rawJson, 'utf-8') > MAX_SETTINGS_IMPORT_BYTES) {
+        throw new Error('Settings file exceeds 512 KiB size limit');
+    }
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(rawJson);
+    } catch (error) {
+        throw new Error(`Invalid JSON: ${String(error)}`);
+    }
+    if (
+        typeof parsed !== 'object' ||
+        parsed === null ||
+        Array.isArray(parsed)
+    ) {
+        throw new Error('Settings JSON must be an object');
+    }
+    const normalized = normalizeSettingsRecord(
+        parsed as Record<string, unknown>,
+        true
+    );
+    return saveSettings(normalized);
 }
 
 export function upsertConfig(config: DnsConfig): DnsConfig[] {
-    const normalized: DnsConfig = {
-        name: config.name.trim(),
+    const configs = loadConfigs();
+    const trimmedName = config.name.trim();
+    const existingIndex = configs.findIndex(
+        (c) => c.name.trim().toLowerCase() === trimmedName.toLowerCase()
+    );
+    const entry: DnsConfig = {
+        id:
+            config.id ??
+            (existingIndex >= 0 ? configs[existingIndex].id : undefined),
+        name: trimmedName,
         primary: config.primary.trim(),
         alternative: config.alternative?.trim() || undefined,
     };
-    const configs = loadConfigs();
-    const existingIndex = configs.findIndex(
-        (c) => c.name.trim().toLowerCase() === normalized.name.toLowerCase()
-    );
     if (existingIndex >= 0) {
-        configs[existingIndex] = normalized;
+        configs[existingIndex] = entry;
     } else {
-        configs.push(normalized);
+        configs.push(entry);
     }
-    saveConfigs(configs);
-    return configs;
+    const persisted = normalizeServerList(configs);
+    saveConfigs(persisted);
+    return persisted;
 }
 
 export function removeConfig(name: string): DnsConfig[] {
@@ -379,7 +715,11 @@ function isDnsConfig(value: unknown): value is DnsConfig {
     if (
         typeof config.name !== 'string' ||
         typeof config.primary !== 'string' ||
+        (config.id !== undefined &&
+            config.id !== null &&
+            typeof config.id !== 'string') ||
         (config.alternative !== undefined &&
+            config.alternative !== null &&
             typeof config.alternative !== 'string')
     ) {
         return false;
@@ -388,12 +728,9 @@ function isDnsConfig(value: unknown): value is DnsConfig {
     if (trimmedName.length === 0 || [...trimmedName].length > MAX_NAME_LEN) {
         return false;
     }
+    const alt =
+        typeof config.alternative === 'string' ? config.alternative.trim() : '';
     // Persisted data is user-controlled: never trust it without validating
     // the addresses, since these values are later handed to OS commands.
-    return (
-        validateIPv4(config.primary) &&
-        (config.alternative === undefined ||
-            config.alternative === '' ||
-            validateIPv4(config.alternative))
-    );
+    return validateIPv4(config.primary) && (alt === '' || validateIPv4(alt));
 }
