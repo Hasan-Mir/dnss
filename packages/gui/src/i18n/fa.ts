@@ -33,6 +33,7 @@ const fa: Dict = {
     // Shared words
     'common.cancel': 'انصراف',
     'common.apply': 'اعمال',
+    'common.applied': 'اعمال‌شده',
     'common.delete': 'حذف',
     'common.remove': 'حذف',
     'common.save': 'ذخیره',
@@ -73,6 +74,10 @@ const fa: Dict = {
     'home.dhcpDefault': 'خودکار (DHCP)',
     'home.protectAction': 'بازگردانی DNS',
     'home.disconnectAction': 'قطع و بازگشت به DHCP',
+    'home.disconnectTooltip':
+        'آداپتور فعال را به DNS خودکار مودم/اینترنت (DHCP) برمی‌گرداند و DNS فعلی را برای بازگردانی سریع نگه می‌دارد. عملکرد آن دقیقاً مشابه خاموش کردن کلید بالای صفحه است.',
+    'home.restoreTooltip':
+        'آخرین DNS سفارشی ذخیره‌شده را دوباره روی آداپتور فعال اعمال می‌کند. عملکرد آن دقیقاً مشابه روشن کردن کلید بالای صفحه است.',
     'home.chooseServer': 'انتخاب سرور',
     'home.hintReset': 'بازگشت به DHCP خودکار — DNS فعلی ذخیره می‌ماند',
     'home.hintRestore': 'بازگرداندن «{name}» روی این آداپتور',

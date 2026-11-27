@@ -146,7 +146,7 @@ fn system_exe(rel_path: &str) -> String {
 }
 
 /// Run a PowerShell snippet and return its stdout using the absolute Windows
-/// PowerShell path. Callers pass untrusted strings via Base64 JSON or
+/// PowerShell path. Callers pass untrusted strings via Base64 UTF-8 or
 /// `ps_quote` so user data never becomes PowerShell syntax.
 #[cfg(target_os = "windows")]
 fn run_ps(script: &str) -> Result<String, String> {
@@ -346,6 +346,31 @@ fn is_elevated() -> bool {
     run(&fltmc, &[]).is_ok()
 }
 
+/// Build the PowerShell expression that yields target adapter names as flat
+/// strings. Each explicit name is encoded individually as Base64 UTF-8
+/// (strictly `[A-Za-z0-9+/=]`) so untrusted strings never enter PowerShell's
+/// lexer as string literals, while avoiding Windows PowerShell 5.1's
+/// `ConvertFrom-Json` non-enumerated array quirk (where
+/// `@(ConvertFrom-Json '["Wi-Fi"]')` produced a nested `Object[]` instead of
+/// flat strings).
+#[cfg(any(target_os = "windows", test))]
+fn build_ps_names_expr(names: Option<&[String]>) -> String {
+    match names {
+        Some(names) => {
+            let encoded_items: Vec<String> = names
+                .iter()
+                .map(|name| format!("'{}'", bytes_base64(name.as_bytes())))
+                .collect();
+            format!(
+                "@(@({}) | ForEach-Object {{ [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($_)) }})",
+                encoded_items.join(",")
+            )
+        }
+        // The adapter list comes from the OS itself; nothing to quote.
+        None => "@(Get-NetAdapter | Select-Object -ExpandProperty Name)".to_string(),
+    }
+}
+
 /// Apply DNS settings directly in the current Windows process.
 /// Called by `DnssService` (running as LocalSystem) or directly when the app
 /// is launched from an already-elevated shell (e.g. dev/portable runs).
@@ -354,22 +379,10 @@ pub(crate) fn set_dns_many_direct(
     names: Option<&[String]>,
     servers: &[String],
 ) -> Result<Vec<super::SetDnsOutcome>, String> {
-    let names_expr = match names {
-        Some(names) => {
-            // Pass adapter names as Base64-encoded UTF-8 JSON (strictly
-            // [A-Za-z0-9+/=]) so untrusted adapter strings never enter
-            // PowerShell's lexer as string literals.
-            let json = serde_json::to_string(names)
-                .map_err(|e| format!("JSON serialize error: {}", e))?;
-            let b64 = bytes_base64(json.as_bytes());
-            format!(
-                "@(ConvertFrom-Json ([System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{}'))))",
-                b64
-            )
-        }
-        // The adapter list comes from the OS itself; nothing to quote.
-        None => "@(Get-NetAdapter | Select-Object -ExpandProperty Name)".to_string(),
-    };
+    if matches!(names, Some([])) {
+        return Ok(vec![]);
+    }
+    let names_expr = build_ps_names_expr(names);
     // Set-DnsClientServerAddress replaces the *entire* address list in a
     // single call. The previous netsh `set dns` + `add dns index=N` pattern
     // left stale entries at index >= 3 behind and did not cover IPv6; this
@@ -1008,7 +1021,7 @@ pub fn detect_default_adapter() -> Result<Option<String>, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{bytes_base64, ps_quote};
+    use super::{build_ps_names_expr, bytes_base64, ps_quote};
 
     #[test]
     fn ps_quote_escapes_ascii_and_unicode_smart_quotes() {
@@ -1035,5 +1048,37 @@ mod tests {
         assert!(encoded
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/' || b == b'='));
+    }
+
+    #[test]
+    fn build_ps_names_expr_encodes_each_adapter_flatly() {
+        let single = vec!["Wi-Fi".to_string()];
+        assert_eq!(
+            build_ps_names_expr(Some(&single)),
+            "@(@('V2ktRmk=') | ForEach-Object { [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($_)) })"
+        );
+
+        let payload = "Wi-Fi'\u{2019}); $(calc.exe); #".to_string();
+        let multi = vec!["Wi-Fi".to_string(), payload.clone()];
+        let multi_expr = build_ps_names_expr(Some(&multi));
+        assert!(!multi_expr.contains("ConvertFrom-Json"));
+        assert!(!multi_expr.contains("calc.exe"));
+        assert!(!multi_expr.contains("$("));
+        assert!(!multi_expr.contains('\u{2019}'));
+        assert!(multi_expr.contains(&format!(
+            "'{}','{}'",
+            bytes_base64("Wi-Fi".as_bytes()),
+            bytes_base64(payload.as_bytes())
+        )));
+
+        assert_eq!(
+            build_ps_names_expr(Some(&[])),
+            "@(@() | ForEach-Object { [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($_)) })"
+        );
+
+        assert_eq!(
+            build_ps_names_expr(None),
+            "@(Get-NetAdapter | Select-Object -ExpandProperty Name)"
+        );
     }
 }

@@ -88,6 +88,23 @@ function isVpnAdapter(adapter: Adapter | null): boolean {
     return VPN_ADAPTER_RE.test(`${adapter.name} ${adapter.kind ?? ''}`);
 }
 
+function serversMatchEntry(servers: string[], entry: Entry): boolean {
+    if (servers.length === 0 || servers[0] !== entry.preset.primary) {
+        return false;
+    }
+    if (entry.preset.alternative) {
+        return servers.length === 2 && servers[1] === entry.preset.alternative;
+    }
+    return servers.length === 1;
+}
+
+function entryMatchesAdapter(entry: Entry, adapter: Adapter): boolean {
+    if (!adapter.dns_static) {
+        return false;
+    }
+    return serversMatchEntry(adapter.dns_servers, entry);
+}
+
 function LatencyPill({ i18n, ping }: { i18n: I18n; ping?: PingState }) {
     if (ping?.status === 'testing') {
         return (
@@ -389,7 +406,7 @@ export default function ServersPage({
         [t]
     );
 
-    const activeStaticPrimary = activeDns?.static_servers[0] ?? null;
+    const activeStaticServers = activeDns?.static_servers ?? [];
 
     const savedEntries: Entry[] = useMemo(
         () =>
@@ -671,12 +688,19 @@ export default function ServersPage({
     );
 
     const openApplyMenu = useCallback(
-        (entryKey: string) => {
+        (entry: Entry) => {
             setConfirmKey(null);
-            setApplyMenuKey(entryKey);
+            setApplyMenuKey(entry.key);
             setApplyAll(false);
-            const initial = activeAdapterName ?? adapters[0]?.name;
-            setApplySelection(new Set(initial ? [initial] : []));
+            const matched = adapters
+                .filter((a) => entryMatchesAdapter(entry, a))
+                .map((a) => a.name);
+            if (matched.length > 0) {
+                setApplySelection(new Set(matched));
+            } else {
+                const initial = activeAdapterName ?? adapters[0]?.name;
+                setApplySelection(new Set(initial ? [initial] : []));
+            }
         },
         [activeAdapterName, adapters]
     );
@@ -810,7 +834,7 @@ export default function ServersPage({
 
     const renderRow = (entry: Entry): ReactNode => {
         const ping = pings[entry.key];
-        const isActive = activeStaticPrimary === entry.preset.primary;
+        const isActive = serversMatchEntry(activeStaticServers, entry);
         const isApplying = applyBusyId === entry.key;
 
         return (
@@ -870,21 +894,31 @@ export default function ServersPage({
                     </button>
 
                     {/* Split Apply control */}
-                    <div className="inline-flex items-stretch overflow-hidden rounded-lg">
+                    <div
+                        className={`inline-flex items-stretch overflow-hidden rounded-lg ${
+                            isActive
+                                ? 'ring-1 ring-inset ring-[var(--dnss-accent)]/35'
+                                : ''
+                        }`}
+                    >
                         <button
                             type="button"
                             disabled={busy}
                             onClick={() => quickApply(entry)}
                             className={`inline-flex h-8 items-center gap-1.5 px-3 text-[length:var(--dnss-fs-xs)] font-medium ${
                                 isActive
-                                    ? 'bg-[var(--dnss-raised)] text-[var(--dnss-ink-1)] hover:bg-[var(--dnss-hover)]'
+                                    ? 'bg-[var(--dnss-accent-soft)] text-[var(--dnss-accent-text)] hover:bg-[var(--dnss-accent)]/20'
                                     : 'bg-[var(--dnss-accent)] text-[var(--dnss-accent-ink)] hover:bg-[var(--dnss-accent-hover)]'
                             } disabled:cursor-not-allowed disabled:opacity-50`}
                         >
-                            {isApplying && (
+                            {isApplying ? (
                                 <span className="loading loading-spinner loading-xs" />
+                            ) : (
+                                isActive && (
+                                    <CheckIcon className="size-3.5 shrink-0 stroke-[2.2]" />
+                                )
                             )}
-                            {t('common.apply')}
+                            {isActive ? t('common.applied') : t('common.apply')}
                         </button>
                         <button
                             ref={setTrigger(entry.key)}
@@ -897,12 +931,12 @@ export default function ServersPage({
                                 if (applyMenuKey === entry.key) {
                                     setApplyMenuKey(null);
                                 } else {
-                                    openApplyMenu(entry.key);
+                                    openApplyMenu(entry);
                                 }
                             }}
                             className={`grid w-6 shrink-0 place-items-center border-s ${
                                 isActive
-                                    ? 'border-[var(--dnss-border)] bg-[var(--dnss-raised)] text-[var(--dnss-ink-2)] hover:bg-[var(--dnss-hover)]'
+                                    ? 'border-[var(--dnss-accent)]/25 bg-[var(--dnss-accent-soft)] text-[var(--dnss-accent-text)] hover:bg-[var(--dnss-accent)]/20'
                                     : 'border-black/15 bg-[var(--dnss-accent)] text-[var(--dnss-accent-ink)] hover:bg-[var(--dnss-accent-hover)]'
                             } disabled:cursor-not-allowed disabled:opacity-50`}
                         >

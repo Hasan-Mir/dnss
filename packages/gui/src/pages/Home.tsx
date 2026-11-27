@@ -117,7 +117,7 @@ function AdapterRow({
                                     {ip}
                                 </span>
                                 {provider && (
-                                    <span className="font-sans text-[length:var(--dnss-fs-2xs)] text-[var(--dnss-ink-3)]">
+                                    <span className="font-sans text-[length:var(--dnss-fs-2xs)] font-medium text-[var(--dnss-accent-text)]">
                                         {provider}
                                     </span>
                                 )}
@@ -185,7 +185,7 @@ export default function HomePage({
             : t('home.hintNoAdapter');
 
     return (
-        <div className="mx-auto flex w-full max-w-2xl flex-col gap-4">
+        <div className="@container mx-auto flex w-full max-w-2xl flex-col gap-4">
             {/* Active Connection Hero Panel */}
             <section className="dnss-card rounded-2xl p-5">
                 <div className="flex flex-wrap items-start justify-between gap-4">
@@ -333,23 +333,35 @@ export default function HomePage({
                 {/* Primary Action Row */}
                 <div className="mt-4 flex flex-wrap items-center gap-2">
                     {canToggle ? (
-                        <button
-                            type="button"
-                            disabled={busy}
-                            onClick={onToggleDns}
-                            className={`inline-flex h-9 items-center gap-2 rounded-lg px-3.5 text-[length:var(--dnss-fs-sm)] font-medium ${
-                                isCustomDnsActive
-                                    ? 'bg-[var(--dnss-raised)] text-[var(--dnss-ink-1)] hover:bg-[var(--dnss-hover)]'
-                                    : 'bg-[var(--dnss-accent)] text-[var(--dnss-accent-ink)] hover:bg-[var(--dnss-accent-hover)]'
-                            } disabled:cursor-not-allowed disabled:opacity-50`}
-                        >
-                            {toggleBusy && (
-                                <span className="loading loading-spinner loading-xs" />
-                            )}
-                            {isCustomDnsActive
-                                ? t('home.disconnectAction')
-                                : t('home.protectAction')}
-                        </button>
+                        <div className="group/dhcp relative inline-flex">
+                            <button
+                                type="button"
+                                aria-describedby="dnss-dhcp-tooltip"
+                                disabled={busy}
+                                onClick={onToggleDns}
+                                className={`inline-flex h-9 items-center gap-2 rounded-lg px-3.5 text-[length:var(--dnss-fs-sm)] font-medium ${
+                                    isCustomDnsActive
+                                        ? 'bg-[var(--dnss-raised)] text-[var(--dnss-ink-1)] hover:bg-[var(--dnss-hover)]'
+                                        : 'bg-[var(--dnss-accent)] text-[var(--dnss-accent-ink)] hover:bg-[var(--dnss-accent-hover)]'
+                                } disabled:cursor-not-allowed disabled:opacity-50`}
+                            >
+                                {toggleBusy && (
+                                    <span className="loading loading-spinner loading-xs" />
+                                )}
+                                {isCustomDnsActive
+                                    ? t('home.disconnectAction')
+                                    : t('home.protectAction')}
+                            </button>
+                            <div
+                                id="dnss-dhcp-tooltip"
+                                role="tooltip"
+                                className="dnss-popover pointer-events-none absolute bottom-full start-0 z-30 mb-2 w-72 max-w-[calc(100cqi-2.5rem)] translate-y-1 rounded-xl px-3 py-2 text-[length:var(--dnss-fs-xs)] leading-relaxed text-[var(--dnss-ink-1)] opacity-0 transition-all duration-150 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover/dhcp:translate-y-0 group-hover/dhcp:opacity-100 group-focus-within/dhcp:translate-y-0 group-focus-within/dhcp:opacity-100"
+                            >
+                                {isCustomDnsActive
+                                    ? t('home.disconnectTooltip')
+                                    : t('home.restoreTooltip')}
+                            </div>
+                        </div>
                     ) : (
                         <button
                             type="button"

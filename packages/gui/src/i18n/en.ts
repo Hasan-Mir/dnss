@@ -32,6 +32,7 @@ const en = {
     // Shared words
     'common.cancel': 'Cancel',
     'common.apply': 'Apply',
+    'common.applied': 'Applied',
     'common.delete': 'Delete',
     'common.remove': 'Remove',
     'common.save': 'Save',
@@ -72,6 +73,10 @@ const en = {
     'home.dhcpDefault': 'Automatic (DHCP)',
     'home.protectAction': 'Restore DNS',
     'home.disconnectAction': 'Disconnect to DHCP',
+    'home.disconnectTooltip':
+        'Switches the active adapter back to automatic DHCP DNS while remembering your current custom DNS. Same action as turning off the power switch above.',
+    'home.restoreTooltip':
+        'Reapplies your last remembered custom DNS on the active adapter. Same action as turning on the power switch above.',
     'home.chooseServer': 'Choose a server',
     'home.hintReset': 'Switch back to automatic DHCP — current DNS is saved',
     'home.hintRestore': 'Restore “{name}” on this adapter',

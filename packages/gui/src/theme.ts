@@ -313,12 +313,32 @@ export function applyAccent(
             : Math.max(36, Math.min(48, l > 48 ? 42 : l));
     const hoverL =
         mode === 'dark' ? Math.max(46, mainL - 6) : Math.max(28, mainL - 6);
-    const textL =
+    let textL =
         mode === 'dark' ? Math.max(62, mainL + 4) : Math.min(36, mainL - 4);
 
     const mainRgb = hslToRgb(h, sat, mainL);
     const hoverRgb = hslToRgb(h, sat, hoverL);
-    const textRgb = hslToRgb(h, sat, textL);
+
+    // Ensure --dnss-accent-text meets WCAG AA (4.5:1) on tinted/raised surfaces.
+    const refSurface =
+        mode === 'dark' ? { r: 32, g: 37, b: 48 } : { r: 248, g: 249, b: 251 };
+    const refBg = {
+        r: Math.round(mainRgb.r * 0.2 + refSurface.r * 0.8),
+        g: Math.round(mainRgb.g * 0.2 + refSurface.g * 0.8),
+        b: Math.round(mainRgb.b * 0.2 + refSurface.b * 0.8),
+    };
+    const refBgLum = relativeLuminance(refBg.r, refBg.g, refBg.b);
+    let textRgb = hslToRgb(h, sat, textL);
+    for (let step = 0; step < 30; step++) {
+        const textLum = relativeLuminance(textRgb.r, textRgb.g, textRgb.b);
+        const ratio =
+            (Math.max(textLum, refBgLum) + 0.05) /
+            (Math.min(textLum, refBgLum) + 0.05);
+        if (ratio >= 4.5) break;
+        textL =
+            mode === 'dark' ? Math.min(92, textL + 2) : Math.max(14, textL - 2);
+        textRgb = hslToRgb(h, sat, textL);
+    }
 
     const mainHex = rgbToHex(mainRgb.r, mainRgb.g, mainRgb.b);
     const hoverHex = rgbToHex(hoverRgb.r, hoverRgb.g, hoverRgb.b);
