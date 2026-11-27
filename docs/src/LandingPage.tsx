@@ -236,7 +236,7 @@ export default function LandingPage() {
                     <a href="#top" className="lp-brand">
                         <img src={appIcon} alt="DNSS" />
                         <span>DNSS</span>
-                        <span className="lp-ver">v1.0.0</span>
+                        <span className="lp-ver">v1.1.0</span>
                     </a>
 
                     <nav className="lp-nav-links" aria-label="Main navigation">

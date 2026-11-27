@@ -1,6 +1,6 @@
 {
     "name": "dnss",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "private": true,
     "description": "DNSS (DNS Switcher) - Change your DNS servers with a CLI or a modern desktop app",
     "keywords": [

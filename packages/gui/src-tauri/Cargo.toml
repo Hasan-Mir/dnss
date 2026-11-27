@@ -1,6 +1,6 @@
 [package]
 name = "dnss"
-version = "1.0.0"
+version = "1.1.0"
 description = "DNSS (DNS Switcher) - change your DNS servers with one click"
 license = "MIT"
 edition = "2021"
